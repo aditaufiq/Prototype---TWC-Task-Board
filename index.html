@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Board — Team Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+<div class="sidebar">
+<h1>Task Board</h1>
+<span class="sub">PT Taman Wisata Candi Borobudur</span>
+<div class="role-box">
+<label>Signed in as</label>
+<select id="roleSelect"></select>
+<span class="role-tag" id="roleTag"></span><div class="auth-note">Prototype role switch · Production: Google SSO + Firebase Auth</div>
+</div>
+<ul class="div-list" id="divList"></ul>
+<button class="members-btn" id="membersBtn">⚙ Manage Members</button>
+<button class="members-btn" id="productsBtn" style="margin-top:.5rem;">＋ Manage Products</button>
+</div>
+<div class="main">
+<div class="topbar">
+<div>
+<div class="board-breadcrumb" id="boardBreadcrumb"><span>Dashboard</span></div>
+<h2 id="boardTitle">Dashboard</h2>
+<p class="desc" id="boardDesc">Your workspace overview and the tasks that need attention.</p>
+</div>
+<div class="toolbar">
+<button class="toolbar-btn" id="exportBtn">⬇ Export Data</button>
+<button class="toolbar-btn" id="importBtn">⬆ Import Data</button>
+<input accept="application/json" id="importFile" style="display:none" type="file"/>
+<div class="notification-wrap">
+<button aria-label="Open notifications" class="toolbar-btn notification-btn" id="notifyBtn">🔔 Notifications<span class="notification-count" id="notificationCount" style="display:none">0</span></button>
+<div class="notification-panel" id="notificationPanel">
+<div class="notification-head">
+<strong>Notifications</strong>
+<div class="notification-actions">
+<button class="notification-link" id="markAllReadBtn">Mark all read</button>
+<button class="notification-link" id="notificationSettingsBtn">Settings</button>
+</div>
+</div>
+<div class="notification-filters" id="notificationFilters"><button class="notification-filter active" data-notification-filter="all">All</button><button class="notification-filter" data-notification-filter="tasks">Tasks</button><button class="notification-filter" data-notification-filter="mentions">Mentions</button><button class="notification-filter" data-notification-filter="deadlines">Deadlines</button><button class="notification-filter" data-notification-filter="messages">Messages</button></div>
+<div class="notification-list" id="notificationList"></div>
+</div>
+</div>
+<button class="add-btn" id="addBtn">+ Add Task</button>
+</div>
+</div>
+<div class="summary-wrap" id="summaryWrap">
+<div class="summary-grid" id="summaryGrid"></div>
+<div class="div-summary" id="divSummary"></div>
+</div>
+<div class="dashboard-view" id="dashboardView" style="display:none;"></div>
+<div class="board-tools" id="boardTools">
+<div class="search-wrap"><input class="task-search" id="taskSearch" placeholder="Search tasks by title, PIC, product, or department..." aria-label="Search tasks" type="search"/></div>
+<select class="task-filter" id="picFilter"><option value="all">All PICs</option></select>
+<select class="task-filter" id="priorityFilter"><option value="all">All priorities</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+<select class="task-filter" id="statusFilter"><option value="all">All statuses</option><option value="todo">To Do</option><option value="progress">In Progress</option><option value="review">In Review</option><option value="done">Done</option></select>
+<button class="btn-secondary" id="clearFiltersBtn" type="button">Clear</button>
+      <div class="task-result-meta" id="taskResultMeta"></div>
+</div>
+<div class="board" id="board"></div>
+<div class="note">
+      Prototype mode — data is stored locally in this browser. Export/Import can move data between devices; real-time collaboration requires a shared backend and real authentication.
+    </div>
+</div>
+</div>
+<!-- DETAIL MODAL -->
+<div class="overlay" id="detailOverlay">
+<div class="modal detail-modal" id="detailModal">
+<span class="detail-div-tag" id="dDivTag"></span>
+<div class="detail-heading-row"><h3 id="dTitle" style="margin-top:0.4rem;"></h3><div class="detail-status-stack"><span class="status-pill" id="dStatusPill"></span><span class="deadline-label-inline" id="dDeadlineLabel"></span></div></div>
+<div class="detail-desc rich-content" id="dDesc"></div>
+<div class="detail-meta">
+<div><span class="k">Task Owner</span><span class="v" id="dAssignee"></span></div>
+<div><span class="k">Priority</span><span class="v" id="dPriority"></span></div>
+<div><span class="k">Due date</span><span class="v" id="dDue"></span></div>
+<div><span class="k">Status</span><span class="v" id="dStatus"></span></div>
+<div><span class="k">Department</span><span class="v" id="dDepartment"></span></div>
+<div><span class="k">Product</span><span class="v" id="dProduct"></span></div>
+<div><span class="k">Created by</span><span class="v" id="dCreatedBy"></span></div>
+<div><span class="k">Last updated</span><span class="v" id="dUpdated"></span></div>
+</div>
+<div id="permissionNote"></div>
+<div id="taskManagerNote"></div>
+<div id="dImageBox"></div>
+<div class="task-links" id="dLinksBox" style="display:none;">
+<div class="task-links-title">Related Links</div>
+<div class="task-link-list" id="dLinksList"></div>
+</div>
+<div class="task-section" id="contributorsSection">
+<div class="task-section-head"><strong>Contributors</strong><span>People helping alongside the task owner</span></div>
+<div class="contributors-list" id="contributorsList"></div>
+<div style="margin-top:.5rem;"><button class="help-btn" id="helpTaskBtn" type="button">＋ I’m helping with this task</button></div>
+</div>
+<div class="task-section" id="attachmentsSection" style="display:none;">
+<div class="task-section-head"><strong>Attachments</strong><span>Supporting files</span></div>
+<div class="attachment-list" id="dAttachmentsList"></div>
+</div>
+<div class="task-section" id="statusHistorySection">
+<div class="task-section-head"><strong>Status timeline</strong><span>Task progress history</span></div>
+<div class="status-timeline" id="statusTimeline"></div>
+</div>
+<div class="discussion">
+<div class="discussion-head">
+<span>Task Discussion</span>
+<span class="mention-hint">Use @name to mention someone</span>
+</div>
+<div class="chat-list" id="chatList"></div>
+<div class="chat-compose">
+<div class="chat-input-wrap">
+<textarea id="chatInput" placeholder="Write a message... Type @ to mention someone."></textarea>
+<div class="mention-suggestions" id="mentionSuggestions"></div>
+</div>
+<button class="add-btn" id="sendChatBtn">Send</button>
+</div>
+</div>
+<div class="modal-actions" id="dActions" style="justify-content: space-between;">
+<div style="display:flex; gap:0.6rem;">
+<button class="btn-secondary" id="deleteBtn">Delete Task</button>
+<button class="btn-secondary" id="editTaskBtn">Edit Task</button>
+</div>
+<button class="btn-secondary" id="calendarBtn" style="margin-right:.4rem;">＋ Google Calendar</button><button class="add-btn" id="statusActionBtn"></button>
+</div>
+</div>
+</div>
+<!-- ADD TASK MODAL -->
+<div class="overlay" id="overlay">
+<div class="modal task-form-modal">
+<h3 id="formModalTitle">New Task</h3>
+<div class="field">
+<label>Task title</label>
+<input id="fTitle" placeholder="e.g. Research online ticket competitors" type="text"/>
+</div>
+<div class="field">
+<label>Description</label>
+<div class="rich-editor" id="descriptionEditor">
+<div aria-label="Description formatting tools" class="rich-toolbar">
+<button data-cmd="bold" title="Bold" type="button"><strong>B</strong></button>
+<button data-cmd="italic" title="Italic" type="button"><em>I</em></button>
+<button data-cmd="underline" title="Underline" type="button"><u>U</u></button>
+<span class="tool-sep"></span>
+<button data-cmd="insertUnorderedList" title="Bulleted list" type="button">•</button>
+<button data-cmd="insertOrderedList" title="Numbered list" type="button">1.</button>
+<button id="insertLinkBtn" title="Insert link" type="button">🔗</button>
+<button data-cmd="removeFormat" title="Clear formatting" type="button">Tx</button>
+</div>
+<div class="rich-editor-content" contenteditable="true" data-placeholder="Describe the task, paste formatted text from Gmail/Docs, or use the toolbar above..." id="fDesc"></div>
+</div>
+<div class="description-help">Supports bold, italic, underline, bullet/numbered lists, and clickable links. Rich text pasted from email or Google Docs can be preserved.</div>
+</div>
+<div class="field">
+<label>Department</label>
+<select id="fDepartmenton"></select>
+</div>
+<div class="field">
+<label>Assign to</label>
+<select id="fAssignee"></select>
+</div>
+<div class="field">
+<label>Product</label>
+<select id="fProduct"></select>
+<div class="description-help">Choose the product or workstream this task belongs to.</div>
+</div>
+<div class="field">
+<label>Contributors (optional)</label>
+<select id="fContributors" multiple="" size="4"></select>
+<div class="description-help">Hold Ctrl/Cmd to select multiple people who are helping.</div>
+</div>
+<div class="field">
+<label>Priority</label>
+<select id="fPriority">
+<option value="high">High</option>
+<option selected="" value="medium">Medium</option>
+<option value="low">Low</option>
+</select>
+</div>
+<div class="field">
+<label>Due date</label>
+<input id="fDue" type="date"/>
+</div>
+<div class="field">
+<label>Related links (optional)</label>
+<div class="link-editor-list" id="linkEditorList"></div>
+<button class="btn-secondary" id="addLinkBtn" style="margin-top:.55rem;width:100%;" type="button">+ Add link</button>
+<div class="import-note">Enter the text you want users to see and the destination URL. For example: <strong>Project Brief</strong> → Google Docs.</div>
+</div>
+<div class="field">
+<label>Attachments (optional)</label>
+<input accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv" id="fImage" multiple="" type="file"/>
+<div id="fImagePreviewBox" style="margin-top:0.6rem;"></div>
+<div class="description-help">Attach supporting images or documents for this task.</div>
+</div>
+<div class="modal-actions">
+<button class="btn-secondary" id="cancelBtn">Cancel</button>
+<button class="add-btn" id="saveBtn">Save</button>
+</div>
+</div>
+</div>
+<!-- PRODUCTS MODAL -->
+<div class="overlay" id="productsOverlay"><div class="modal product-manager-modal"><h3>Manage Products</h3><p class="import-note" style="margin-top:-.7rem;margin-bottom:1rem;">Add or rename the workstreams shown under each department.</p><div id="productManagerBody"></div><div class="modal-actions"><button class="btn-secondary" id="closeProductsBtn">Done</button></div></div></div>
+<!-- NOTIFICATION SETTINGS MODAL -->
+<div class="overlay" id="notificationOverlay">
+<div class="modal">
+<h3>Notification Settings</h3>
+<div class="notification-status" id="notificationStatus"></div>
+<div class="field">
+<label>Browser notifications</label>
+<button class="add-btn" id="enableNotificationsBtn" style="width:100%;">Enable Notifications</button>
+<div class="import-note">Used for deadline and mention reminders on this browser.</div>
+</div>
+<div class="field">
+<label>Reminder schedule</label>
+<div class="notify-checks">
+<label><input checked="" id="remind3" type="checkbox"/> 3 days before</label>
+<label><input checked="" id="remind1" type="checkbox"/> 1 day before</label>
+<label><input checked="" id="remind0" type="checkbox"/> On due date</label>
+<label><input checked="" id="remindOverdue" type="checkbox"/> Daily when overdue</label>
+</div>
+</div>
+<div class="field">
+<label>Message notifications</label>
+<div class="notify-checks">
+<label><input checked="" id="mentionNotify" type="checkbox"/> When I am mentioned</label>
+<label><input checked="" id="chatNotify" type="checkbox"/> New message in my tasks</label>
+<label><input checked="" id="mentionSound" type="checkbox"/> Play sound for mentions</label>
+<label><input id="chatSound" type="checkbox"/> Play sound for new messages</label>
+</div>
+</div>
+<div class="field">
+<label>Google Calendar</label>
+<button class="btn-secondary" id="calendarHelpBtn" style="width:100%;">How it works</button>
+<div class="import-note">Each task can be added to Google Calendar with its deadline. Full automatic sync requires Google OAuth + a backend.</div>
+</div>
+<div class="modal-actions">
+<button class="add-btn" id="closeNotificationsBtn">Done</button>
+</div>
+</div>
+</div>
+<!-- MEMBERS MODAL -->
+<div class="overlay" id="membersOverlay">
+<div class="modal">
+<h3>Manage Members</h3>
+<div id="memberRows"></div>
+<button class="btn-secondary" id="addMemberBtn" style="margin-top: 0.8rem; width: 100%;">+ Add member</button>
+<div class="modal-actions">
+<button class="add-btn" id="closeMembersBtn">Done</button>
+</div>
+</div>
+</div>
+
+<!-- CONFIRMATION MODAL -->
+<div class="overlay confirm-overlay" id="confirmOverlay">
+  <div class="modal confirm-modal">
+    <div class="confirm-icon" id="confirmIcon">!</div>
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmMessage"></p>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="confirmCancelBtn">Cancel</button>
+      <button class="add-btn confirm-danger" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div aria-atomic="true" aria-live="polite" class="notification-toast-wrap" id="notificationToastWrap"></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
