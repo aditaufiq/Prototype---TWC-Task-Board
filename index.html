@@ -994,6 +994,49 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .welcome-eyebrow{font-size:.56rem;font-weight:800;letter-spacing:.13em;color:#7d8b87}.welcome-card h1{margin:.35rem 0 .35rem;font-size:2rem;letter-spacing:-.055em;color:#183b38}.welcome-card p{margin:0 0 1.35rem;font-size:.72rem;line-height:1.55;color:#788580}.welcome-google,.welcome-signin{width:100%;height:42px;border-radius:11px;font-family:inherit;font-size:.7rem;font-weight:700;cursor:pointer}.welcome-google{border:1px solid rgba(31,49,46,.08);background:rgba(255,255,255,.9);color:#273a36;display:flex;align-items:center;justify-content:center;gap:.6rem}.google-g{font-weight:800;font-size:.8rem}.welcome-divider{display:flex;align-items:center;gap:.55rem;margin:1rem 0;color:#9aa6a2;font-size:.56rem}.welcome-divider:before,.welcome-divider:after{content:"";height:1px;background:rgba(31,49,46,.08);flex:1}.welcome-label{display:block;margin:.7rem 0 .32rem;font-size:.58rem;font-weight:700;color:#687772}.welcome-input{width:100%;height:40px;border:1px solid rgba(31,49,46,.08);border-radius:10px;background:rgba(255,255,255,.84);padding:0 .72rem;font-family:inherit;font-size:.68rem;color:#263833;outline:none}.welcome-input:focus{border-color:rgba(15,118,110,.28);box-shadow:0 0 0 3px rgba(15,118,110,.06)}.welcome-password-wrap{position:relative}.welcome-password-wrap .welcome-input{padding-right:2.5rem}.welcome-eye{position:absolute;right:.35rem;top:.35rem;width:32px;height:32px;border:0;background:transparent;border-radius:8px;color:#88958f;cursor:pointer}.welcome-signin{margin-top:1rem;border:0;background:#0f766e;color:#fff;box-shadow:0 10px 22px rgba(15,118,110,.18)}.welcome-protected{display:block;text-align:center;margin-top:1rem;font-size:.55rem;color:#9aa6a2}.welcome-orb{position:absolute;border-radius:50%;filter:blur(2px);pointer-events:none}.welcome-orb-a{width:280px;height:280px;left:-100px;bottom:-80px;background:rgba(15,118,110,.07)}.welcome-orb-b{width:360px;height:360px;right:-140px;top:-120px;background:rgba(59,91,165,.045)}.signout-btn{margin-top:.5rem!important;color:#8b5d5d!important;background:rgba(255,250,250,.55)!important}.signout-btn:hover{color:#b23a3a!important;background:rgba(253,236,236,.75)!important}
 @keyframes welcomeIn{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:560px){.welcome-screen{padding:1rem}.welcome-brand{top:1rem;left:1rem;gap:.55rem}.welcome-mark{width:88px}.welcome-card{padding:1.35rem;border-radius:20px}.welcome-card h1{font-size:1.65rem}}
+.profile-photo-controls{
+  margin-top:.55rem;
+  display:flex;
+  flex-direction:column;
+  gap:.45rem;
+}
+
+.profile-photo-control-row{
+  display:flex;
+  align-items:center;
+  gap:.55rem;
+}
+
+.profile-photo-control-row span{
+  font-size:.58rem;
+  font-weight:700;
+  color:#7d8b87;
+  min-width:34px;
+}
+
+.profile-photo-control-row input[type="range"]{
+  flex:1;
+  accent-color:#0f766e;
+  cursor:pointer;
+}
+
+.profile-photo-reset{
+  width:max-content;
+  border:1px solid rgba(31,49,46,.08);
+  background:#fff;
+  color:#6f7e79;
+  border-radius:8px;
+  padding:.34rem .55rem;
+  font-family:inherit;
+  font-size:.58rem;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.profile-photo-reset:hover{
+  background:#f4f8f6;
+  color:#27635d;
+}
 </style>
 <style id="profile-setup-styles">
 
@@ -1285,6 +1328,27 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
           accept="image/*"
           hidden
         >
+        <div class="profile-photo-controls" id="profilePhotoControls">
+  <div class="profile-photo-control-row">
+    <span>Zoom</span>
+    <input
+      type="range"
+      id="profilePhotoZoom"
+      min="1"
+      max="3"
+      step="0.05"
+      value="1"
+    >
+  </div>
+
+  <button
+    type="button"
+    class="profile-photo-reset"
+    id="profilePhotoReset"
+  >
+    Reset position
+  </button>
+</div>
       </div>
     </div>
 
@@ -3277,8 +3341,27 @@ function showProfileSetup(user){
   if(initial){
     initial.textContent = baseName.charAt(0).toUpperCase();
   }
-  const photoInput = document.getElementById('profilePhotoInput');
+const photoInput = document.getElementById('profilePhotoInput');
 const photoPreview = document.getElementById('profilePhotoPreview');
+
+let photoX = 0;
+let photoY = 0;
+let draggingPhoto = false;
+let startX = 0;
+let startY = 0;
+let startPhotoX = 0;
+let startPhotoY = 0;
+let photoZoom = 1.5;
+
+function updatePhotoPosition(){
+  const img = photoPreview?.querySelector('img');
+  if(!img) return;
+
+  const zoom = photoZoom;
+
+  img.style.transform =
+    `translate(${photoX}px, ${photoY}px) scale(${zoom})`;
+}
 
 photoInput?.addEventListener('change', (event) => {
   const file = event.target.files?.[0];
@@ -3287,10 +3370,76 @@ photoInput?.addEventListener('change', (event) => {
   const reader = new FileReader();
 
   reader.onload = () => {
-    photoPreview.innerHTML = `<img src="${reader.result}" alt="Profile photo">`;
+    photoPreview.innerHTML = `
+      <img
+        src="${reader.result}"
+        alt="Profile photo"
+        draggable="false"
+      >
+    `;
+
+    photoX = 0;
+    photoY = 0;
+
+    const img = photoPreview.querySelector('img');
+
+    if(img){
+      img.style.cursor = 'grab';
+      img.style.userSelect = 'none';
+      img.style.webkitUserDrag = 'none';
+      img.style.transition = 'none';
+    }
+
+    photoPreview.style.cursor = 'grab';
+    photoPreview.style.touchAction = 'none';
+
+    updatePhotoPosition();
   };
 
   reader.readAsDataURL(file);
+});
+
+const photoZoomInput = document.getElementById('profilePhotoZoom');
+
+photoZoomInput?.addEventListener('input', (event) => {
+  photoZoom = Number(event.target.value);
+  updatePhotoPosition();
+});
+photoPreview?.addEventListener('pointerdown', (event) => {
+  const img = photoPreview.querySelector('img');
+
+  if(!img) return;
+
+  draggingPhoto = true;
+
+  startX = event.clientX;
+  startY = event.clientY;
+
+  startPhotoX = photoX;
+  startPhotoY = photoY;
+
+  photoPreview.setPointerCapture(event.pointerId);
+  photoPreview.style.cursor = 'grabbing';
+});
+
+photoPreview?.addEventListener('pointermove', (event) => {
+  if(!draggingPhoto) return;
+
+  photoX = startPhotoX + (event.clientX - startX);
+  photoY = startPhotoY + (event.clientY - startY);
+
+  updatePhotoPosition();
+});
+
+photoPreview?.addEventListener('pointerup', (event) => {
+  draggingPhoto = false;
+  photoPreview.releasePointerCapture(event.pointerId);
+  photoPreview.style.cursor = 'grab';
+});
+
+photoPreview?.addEventListener('pointercancel', () => {
+  draggingPhoto = false;
+  photoPreview.style.cursor = 'grab';
 });
 
   // Tampilkan Profile Setup
