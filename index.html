@@ -3405,6 +3405,19 @@ photoZoomInput?.addEventListener('input', (event) => {
   photoZoom = Number(event.target.value);
   updatePhotoPosition();
 });
+const photoResetButton = document.getElementById('profilePhotoReset');
+
+photoResetButton?.addEventListener('click', () => {
+  photoX = 0;
+  photoY = 0;
+  photoZoom = 1.5;
+
+  if(photoZoomInput){
+    photoZoomInput.value = 1.5;
+  }
+
+  updatePhotoPosition();
+});
 photoPreview?.addEventListener('pointerdown', (event) => {
   const img = photoPreview.querySelector('img');
 
