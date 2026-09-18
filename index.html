@@ -995,6 +995,245 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 @keyframes welcomeIn{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:560px){.welcome-screen{padding:1rem}.welcome-brand{top:1rem;left:1rem;gap:.55rem}.welcome-mark{width:88px}.welcome-card{padding:1.35rem;border-radius:20px}.welcome-card h1{font-size:1.65rem}}
 </style>
+<style id="profile-setup-styles">
+
+.profile-setup-screen{
+  position:fixed;
+  inset:0;
+  z-index:3100;
+  display:grid;
+  place-items:center;
+  background:
+    radial-gradient(circle at 15% 20%,rgba(15,118,110,.08),transparent 32%),
+    radial-gradient(circle at 85% 80%,rgba(70,100,95,.06),transparent 30%),
+    linear-gradient(180deg,#f8faf9,#eef3f0);
+  padding:2rem;
+  overflow:auto;
+}
+
+.profile-setup-screen.hidden{
+  display:none;
+}
+
+.profile-setup-card{
+  width:min(560px,94vw);
+  background:rgba(255,255,255,.78);
+  border:1px solid rgba(255,255,255,.95);
+  border-radius:24px;
+  padding:2rem;
+  box-shadow:
+    0 28px 70px rgba(24,43,39,.12),
+    inset 0 1px 0 rgba(255,255,255,.95);
+  backdrop-filter:blur(24px) saturate(125%);
+  -webkit-backdrop-filter:blur(24px) saturate(125%);
+}
+
+.profile-setup-header{
+  margin-bottom:1.4rem;
+}
+
+.profile-setup-eyebrow{
+  display:block;
+  font-size:.56rem;
+  font-weight:800;
+  letter-spacing:.13em;
+  color:#7d8b87;
+  margin-bottom:.35rem;
+}
+
+.profile-setup-header h1{
+  margin:0 0 .35rem;
+  font-size:1.7rem;
+  letter-spacing:-.045em;
+  color:#183b38;
+}
+
+.profile-setup-header p{
+  margin:0;
+  font-size:.72rem;
+  line-height:1.55;
+  color:#788580;
+}
+
+.profile-photo-section{
+  display:flex;
+  align-items:center;
+  gap:1rem;
+  padding:1rem;
+  border-radius:16px;
+  background:rgba(247,249,248,.72);
+  border:1px solid rgba(31,49,46,.05);
+  margin-bottom:1.15rem;
+}
+
+.profile-photo-preview{
+  width:72px;
+  height:72px;
+  border-radius:50%;
+  flex:0 0 auto;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  background:#dfe9e6;
+  color:#42655f;
+  font-size:1.3rem;
+  font-weight:700;
+}
+
+.profile-photo-preview img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+.profile-photo-info{
+  display:flex;
+  flex-direction:column;
+  gap:.18rem;
+}
+
+.profile-photo-info strong{
+  font-size:.75rem;
+  color:#30423d;
+}
+
+.profile-photo-info span{
+  font-size:.63rem;
+  line-height:1.45;
+  color:#82908b;
+  margin-bottom:.35rem;
+}
+
+.profile-upload-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:max-content;
+  padding:.42rem .68rem;
+  border-radius:9px;
+  background:#fff;
+  border:1px solid rgba(31,49,46,.08);
+  color:#27635d;
+  font-size:.62rem;
+  font-weight:700;
+  cursor:pointer;
+}
+
+.profile-upload-btn:hover{
+  background:#f4f8f6;
+}
+
+.profile-field{
+  margin-bottom:1rem;
+}
+
+.profile-field label{
+  display:block;
+  margin-bottom:.35rem;
+  font-size:.62rem;
+  font-weight:700;
+  color:#697873;
+}
+
+.profile-field input{
+  width:100%;
+  height:42px;
+  border:1px solid rgba(31,49,46,.08);
+  border-radius:11px;
+  background:rgba(255,255,255,.82);
+  padding:0 .75rem;
+  font-family:inherit;
+  font-size:.69rem;
+  color:#263833;
+  outline:none;
+}
+
+.profile-field input:focus{
+  border-color:rgba(15,118,110,.28);
+  box-shadow:0 0 0 3px rgba(15,118,110,.06);
+}
+
+.profile-field input[readonly]{
+  color:#788580;
+  background:rgba(241,245,243,.72);
+}
+
+.profile-field small{
+  display:block;
+  margin-top:.28rem;
+  font-size:.56rem;
+  line-height:1.45;
+  color:#98a29f;
+}
+
+.profile-pending-field{
+  height:42px;
+  display:flex;
+  align-items:center;
+  padding:0 .75rem;
+  border-radius:11px;
+  background:rgba(242,245,243,.8);
+  border:1px solid rgba(31,49,46,.06);
+  color:#7c8985;
+  font-size:.67rem;
+}
+
+.profile-setup-note{
+  display:flex;
+  flex-direction:column;
+  gap:.2rem;
+  padding:.72rem .8rem;
+  margin:1.15rem 0;
+  border-radius:12px;
+  background:rgba(234,245,239,.72);
+  border:1px solid rgba(15,118,110,.08);
+}
+
+.profile-setup-note strong{
+  font-size:.64rem;
+  color:#2e665d;
+}
+
+.profile-setup-note span{
+  font-size:.58rem;
+  line-height:1.5;
+  color:#71827d;
+}
+
+.profile-complete-btn{
+  width:100%;
+  height:43px;
+  border:0;
+  border-radius:11px;
+  background:#0f766e;
+  color:#fff;
+  font-family:inherit;
+  font-size:.68rem;
+  font-weight:700;
+  cursor:pointer;
+  box-shadow:0 10px 22px rgba(15,118,110,.18);
+}
+
+.profile-complete-btn:hover{
+  opacity:.93;
+}
+
+@media(max-width:560px){
+  .profile-setup-screen{
+    padding:1rem;
+  }
+
+  .profile-setup-card{
+    padding:1.35rem;
+    border-radius:20px;
+  }
+
+  .profile-photo-section{
+    align-items:flex-start;
+  }
+}
+
+</style>
 </head>
 <body>
 <div class="welcome-screen" id="welcomeScreen">
@@ -1015,6 +1254,82 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <div class="welcome-password-wrap"><input class="welcome-input" id="welcomePassword" type="password" placeholder="••••••••" autocomplete="current-password"><button id="toggleWelcomePassword" class="welcome-eye" type="button" aria-label="Show password">◉</button></div>
     <button class="welcome-signin" id="welcomeSignInBtn" type="button">Sign in</button>
     <small class="welcome-protected">Protected by Adit Anak Magang ❤️</small>
+  </div>
+</div>
+<!-- PROFILE SETUP -->
+<div class="profile-setup-screen hidden" id="profileSetupScreen">
+  <div class="profile-setup-card">
+
+    <div class="profile-setup-header">
+      <span class="profile-setup-eyebrow">PROFILE SETUP</span>
+      <h1>Complete your profile</h1>
+      <p>Set up your workspace profile before continuing.</p>
+    </div>
+
+    <div class="profile-photo-section">
+      <div class="profile-photo-preview" id="profilePhotoPreview">
+        <span id="profilePhotoInitial">?</span>
+      </div>
+
+      <div class="profile-photo-info">
+        <strong>Profile photo</strong>
+        <span>Choose a photo for your TWC workspace profile.</span>
+
+        <label class="profile-upload-btn" for="profilePhotoInput">
+          Choose photo
+        </label>
+
+        <input
+          type="file"
+          id="profilePhotoInput"
+          accept="image/*"
+          hidden
+        >
+      </div>
+    </div>
+
+    <div class="profile-field">
+      <label for="profileUsername">Username</label>
+      <input
+        id="profileUsername"
+        type="text"
+        maxlength="40"
+        placeholder="Enter your username"
+        autocomplete="off"
+      >
+      <small>This name will be shown across the workspace.</small>
+    </div>
+
+    <div class="profile-field">
+      <label for="profileEmail">Work email</label>
+      <input
+        id="profileEmail"
+        type="email"
+        readonly
+      >
+    </div>
+
+    <div class="profile-field">
+      <label>Department</label>
+      <div class="profile-pending-field">
+        <span>Pending Admin Assignment</span>
+      </div>
+      <small>Your department will be assigned by an administrator.</small>
+    </div>
+
+    <div class="profile-setup-note">
+      <strong>One more step.</strong>
+      <span>Your account role starts as Member. An administrator can assign your department later.</span>
+    </div>
+
+    <button
+      class="profile-complete-btn"
+      id="completeProfileBtn"
+      type="button"
+    >
+      Complete profile
+    </button>
+
   </div>
 </div>
 <div class="app">
