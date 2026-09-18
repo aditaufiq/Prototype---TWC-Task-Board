@@ -3241,15 +3241,52 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   membersOverlay.addEventListener('click', (e) => { if (e.target === membersOverlay) membersOverlay.classList.remove('open'); });
 
   function enterWorkspace(){
-    const screen=document.getElementById('welcomeScreen');
-    if(screen){ screen.classList.add('hidden'); }
-    document.querySelector('.app')?.classList.remove('app-hidden');
+  const screen=document.getElementById('welcomeScreen');
+  if(screen){ screen.classList.add('hidden'); }
+  document.querySelector('.app')?.classList.remove('app-hidden');
+}
+
+function showProfileSetup(user){
+  const screen = document.getElementById('profileSetupScreen');
+  const emailInput = document.getElementById('profileEmail');
+  const usernameInput = document.getElementById('profileUsername');
+  const initial = document.getElementById('profilePhotoInitial');
+
+  if(!screen) return;
+
+  // Sembunyikan layar lain
+  document.getElementById('welcomeScreen')?.classList.add('hidden');
+  document.querySelector('.app')?.classList.add('app-hidden');
+
+  // Isi email dari akun Google
+  if(emailInput){
+    emailInput.value = user?.email || '';
   }
-  function showWelcome(){
-    const screen=document.getElementById('welcomeScreen');
-    if(screen){ screen.classList.remove('hidden'); }
-    document.querySelector('.app')?.classList.add('app-hidden');
+
+  // Kosongkan username karena user harus menentukan sendiri
+  if(usernameInput){
+    usernameInput.value = '';
   }
+
+  // Tampilkan inisial sementara
+  const baseName =
+    user?.displayName ||
+    user?.email?.split('@')[0] ||
+    '?';
+
+  if(initial){
+    initial.textContent = baseName.charAt(0).toUpperCase();
+  }
+
+  // Tampilkan Profile Setup
+  screen.classList.remove('hidden');
+}
+
+function showWelcome(){
+  const screen=document.getElementById('welcomeScreen');
+  if(screen){ screen.classList.remove('hidden'); }
+  document.querySelector('.app')?.classList.add('app-hidden');
+}
   document.getElementById('welcomeGoogleBtn')?.addEventListener('click', async () => {
   try {
     const user = await window.loginWithGoogle();
@@ -3262,9 +3299,9 @@ document.getElementById('membersBtn').addEventListener('click', () => {
     console.log('Firestore profile:', profile);
 
     if (!profile) {
-      alert('Login berhasil! Profil kamu belum dibuat. Profile Setup akan muncul di langkah berikutnya.');
-      return;
-    }
+  showProfileSetup(user);
+  return;
+}
 
     enterWorkspace();
 
