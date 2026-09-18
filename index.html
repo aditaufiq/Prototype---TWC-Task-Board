@@ -2939,13 +2939,24 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   try {
     const user = await window.loginWithGoogle();
 
-    if (user) {
-      enterWorkspace();
-    }
-  } catch (error) {
-    console.error(error);
+    if (!user) return;
 
-    alert('Google login gagal. Silakan coba lagi.');
+    const profile = await window.getUserProfile(user.uid);
+
+    console.log('Firebase user:', user);
+    console.log('Firestore profile:', profile);
+
+    if (!profile) {
+      alert('Login berhasil! Profil kamu belum dibuat. Profile Setup akan muncul di langkah berikutnya.');
+      return;
+    }
+
+    enterWorkspace();
+
+  } catch (error) {
+    console.error('Google login / profile check gagal:', error);
+
+    alert('Terjadi masalah saat login. Silakan coba lagi.');
   }
 });
   document.getElementById('welcomeSignInBtn')?.addEventListener('click', enterWorkspace);
