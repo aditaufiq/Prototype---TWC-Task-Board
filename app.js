@@ -9,6 +9,15 @@ import {
   SEED
 } from './data.js';
 
+import {
+  auth,
+  provider,
+  signInWithPopup,
+  signOut
+} from './js/firebase.js';
+
+console.log('Firebase Auth loaded:', auth);
+
 let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null') || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
 
   let tasks = JSON.parse(localStorage.getItem('taskboard_data_v2') || 'null') || SEED;
