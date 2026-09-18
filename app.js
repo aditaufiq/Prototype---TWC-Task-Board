@@ -13,7 +13,8 @@ import {
   auth,
   provider,
   signInWithPopup,
-  signOut
+  signOut,
+  loginWithGoogle
 } from './js/firebase.js';
 
 console.log('Firebase Auth loaded:', auth);

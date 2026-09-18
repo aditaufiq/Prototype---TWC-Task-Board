@@ -2935,7 +2935,19 @@ document.getElementById('membersBtn').addEventListener('click', () => {
     if(screen){ screen.classList.remove('hidden'); }
     document.querySelector('.app')?.classList.add('app-hidden');
   }
-  document.getElementById('welcomeGoogleBtn')?.addEventListener('click', enterWorkspace);
+  document.getElementById('welcomeGoogleBtn')?.addEventListener('click', async () => {
+  try {
+    const user = await window.loginWithGoogle();
+
+    if (user) {
+      enterWorkspace();
+    }
+  } catch (error) {
+    console.error(error);
+
+    alert('Google login gagal. Silakan coba lagi.');
+  }
+});
   document.getElementById('welcomeSignInBtn')?.addEventListener('click', enterWorkspace);
   document.getElementById('toggleWelcomePassword')?.addEventListener('click',()=>{
     const input=document.getElementById('welcomePassword');

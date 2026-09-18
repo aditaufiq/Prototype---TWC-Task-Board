@@ -1,4 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+
 import {
   getAuth,
   GoogleAuthProvider,
@@ -20,10 +21,30 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
+async function loginWithGoogle() {
+  try {
+    const result = await signInWithPopup(auth, provider);
+
+    const user = result.user;
+
+    console.log("Google login berhasil!");
+    console.log("Nama:", user.displayName);
+    console.log("Email:", user.email);
+    console.log("UID:", user.uid);
+
+    return user;
+  } catch (error) {
+    console.error("Google login gagal:", error);
+    throw error;
+  }
+}
+
+window.loginWithGoogle = loginWithGoogle;
 export {
   app,
   auth,
   provider,
   signInWithPopup,
-  signOut
+  signOut,
+  loginWithGoogle
 };
