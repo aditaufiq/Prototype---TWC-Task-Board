@@ -3277,6 +3277,21 @@ function showProfileSetup(user){
   if(initial){
     initial.textContent = baseName.charAt(0).toUpperCase();
   }
+  const photoInput = document.getElementById('profilePhotoInput');
+const photoPreview = document.getElementById('profilePhotoPreview');
+
+photoInput?.addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    photoPreview.innerHTML = `<img src="${reader.result}" alt="Profile photo">`;
+  };
+
+  reader.readAsDataURL(file);
+});
 
   // Tampilkan Profile Setup
   screen.classList.remove('hidden');
