@@ -3307,6 +3307,7 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   function enterWorkspace(){
   const screen=document.getElementById('welcomeScreen');
   if(screen){ screen.classList.add('hidden'); }
+  document.getElementById('profileSetupScreen')?.classList.add('hidden');
   document.querySelector('.app')?.classList.remove('app-hidden');
 }
 
