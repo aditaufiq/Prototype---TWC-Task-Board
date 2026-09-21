@@ -3418,6 +3418,20 @@ photoResetButton?.addEventListener('click', () => {
 
   updatePhotoPosition();
 });
+const completeProfileButton = document.getElementById('completeProfileBtn');
+
+completeProfileButton?.addEventListener('click', () => {
+  const usernameInput = document.getElementById('profileUsername');
+  const username = usernameInput?.value.trim() || '';
+
+  if(!username){
+    alert('Please enter your username.');
+    usernameInput?.focus();
+    return;
+  }
+
+  alert(`Username "${username}" siap disimpan.`);
+});
 photoPreview?.addEventListener('pointerdown', (event) => {
   const img = photoPreview.querySelector('img');
 
