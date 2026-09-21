@@ -3420,7 +3420,7 @@ photoResetButton?.addEventListener('click', () => {
 });
 const completeProfileButton = document.getElementById('completeProfileBtn');
 
-completeProfileButton?.addEventListener('click', () => {
+completeProfileButton?.addEventListener('click', async () => {
   const usernameInput = document.getElementById('profileUsername');
   const username = usernameInput?.value.trim() || '';
 
@@ -3430,7 +3430,47 @@ completeProfileButton?.addEventListener('click', () => {
     return;
   }
 
-  alert(`Username "${username}" siap disimpan.`);
+  completeProfileButton.disabled = true;
+  completeProfileButton.textContent = 'Saving...';
+
+  try{
+    const selectedPhoto =
+      photoPreview?.querySelector('img')?.src || null;
+
+    const profile = await window.createUserProfile(
+      user.uid,
+      {
+        username: username,
+        email: user.email || '',
+        role: 'member',
+        department: null,
+        departmentStatus: 'pending',
+        profileCompleted: true,
+        profilePhoto: selectedPhoto,
+        profilePhotoPosition: {
+          x: photoX,
+          y: photoY,
+          zoom: photoZoom
+        }
+      }
+    );
+
+    console.log('Profile berhasil dibuat:', profile);
+
+    enterWorkspace();
+
+  }catch(error){
+    console.error('Gagal membuat profile:', error);
+
+    alert(
+      'Profile gagal disimpan.\n\n' +
+      (error?.message || 'Unknown error')
+    );
+
+  }finally{
+    completeProfileButton.disabled = false;
+    completeProfileButton.textContent = 'Complete profile';
+  }
 });
 photoPreview?.addEventListener('pointerdown', (event) => {
   const img = photoPreview.querySelector('img');
