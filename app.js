@@ -25,9 +25,12 @@ onAuthStateChanged(auth, async (user) => {
 
   currentFirebaseUser = user;
   currentFirebaseProfile = await getUserProfile(user.uid);
-
+  currentAccessLevel =
+  currentFirebaseProfile?.accessLevel ||
+  'standard';
   console.log('Current Firebase user:', currentFirebaseUser);
   console.log('Current Firebase profile:', currentFirebaseProfile);
+  console.log('Current access level:', currentAccessLevel);
 });
 
 let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null') || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
@@ -42,6 +45,7 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let expandedDepartments = new Set();
   let currentFirebaseUser = null;
   let currentFirebaseProfile = null;
+  let currentAccessLevel = 'member';
   let currentRole = 'admin';
   let notificationFilter = 'all';
   let dashboardMode = true;
