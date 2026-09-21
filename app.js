@@ -281,24 +281,31 @@ if (!firebaseMember) {
   function canEditTask(task){ return canManageTask(task); }
 
   function renderRoleSelect(){
-    const sel = document.getElementById('roleSelect');
-    const currentMember = members.find(m => m.id === currentRole);
-    if (currentMember && currentMember.active === false) currentRole = 'admin';
-    const activeMembers = members.filter(m => m.active !== false);
-    sel.innerHTML = `<option value="admin">Admin</option>` +
-      activeMembers.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join('');
-    sel.value = currentRole;
-    document.getElementById('roleTag').textContent =
-  memberOf(currentRole).role === 'admin'
-    ? 'Admin — full access'
-    : 'Member';
-    document.getElementById('roleTag').className =
-  'role-tag ' +
-  (memberOf(currentRole).role === 'admin' ? 'admin' : 'member');
-    document.getElementById('addBtn').style.display = isAdmin() ? 'inline-block' : 'none';
-    document.getElementById('productsBtn').style.display = isAdmin() ? 'block' : 'none';
-    document.getElementById('membersBtn').style.display = isAdmin() ? 'block' : 'none';
+  const roleTag = document.getElementById('roleTag');
+
+  if(roleTag){
+    const isRealAdmin =
+      memberOf(currentRole).role === 'admin';
+
+    roleTag.textContent =
+      isRealAdmin
+        ? 'Admin — full access'
+        : 'Member';
+
+    roleTag.className =
+      'role-tag ' +
+      (isRealAdmin ? 'admin' : 'member');
   }
+
+  document.getElementById('addBtn').style.display =
+    isAdmin() ? 'inline-block' : 'none';
+
+  document.getElementById('productsBtn').style.display =
+    isAdmin() ? 'block' : 'none';
+
+  document.getElementById('membersBtn').style.display =
+    isAdmin() ? 'block' : 'none';
+}
 
   function renderSidebar(){
     const list = document.getElementById('divList');
