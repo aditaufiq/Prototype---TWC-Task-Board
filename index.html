@@ -1751,6 +1751,13 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let activeProduct = null;
   let expandedDepartments = new Set();
   let currentRole = 'admin';
+  let currentAccessLevel = 'standard';
+
+window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel){
+  currentRole = memberId || currentRole;
+  currentAccessLevel = accessLevel || 'standard';
+  renderAll();
+};
   let notificationFilter = 'all';
   let dashboardMode = true;
   let taskSearch = '';
@@ -1949,7 +1956,11 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   function saveAll(){ save(); saveMembers(); saveActivities(); saveMessages(); saveNotifications(); saveProducts(); }
   function divisionOf(id){ return DIVISIONS.find(d => d.id === id); }
   function memberOf(id){ return members.find(m => m.id === id) || (id === 'admin' || id === '__admin__' ? { name: 'Admin', color: '#344054' } : { name: '?', color: '#999' }); }
-  function isAdmin(){ return currentRole === 'admin' || memberOf(currentRole).role === 'admin'; }
+  function isAdmin(){
+  return currentAccessLevel === 'all'
+    || currentRole === 'admin'
+    || memberOf(currentRole).role === 'admin';
+}
   function canManageTask(task){ return !!task && (isAdmin() || currentRole === task.assignee); }
   function canEditTask(task){ return canManageTask(task); }
 

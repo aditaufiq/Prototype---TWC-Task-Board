@@ -94,7 +94,12 @@ if (!firebaseMember) {
 
   currentRole = firebaseMemberId;
 
-  renderAll();
+window.syncLegacyWorkspaceIdentity?.(
+  firebaseMemberId,
+  currentAccessLevel
+);
+
+renderAll();
 
   console.log('Current Firebase user:', currentFirebaseUser);
   console.log('Current Firebase profile:', currentFirebaseProfile);
