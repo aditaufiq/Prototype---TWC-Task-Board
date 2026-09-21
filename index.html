@@ -2830,12 +2830,9 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
 
 
   // ---- role switch ----
-  document.getElementById('roleSelect').addEventListener('change', (e) => {
-    currentRole = e.target.value;
-    document.getElementById('notificationPanel')?.classList.remove('open');
-    renderAll();
-    maybeToastLatestNotification();
-  });
+document.getElementById('roleSelect').addEventListener('change', () => {
+  renderAll();
+});
 
   document.querySelectorAll('[data-view-mode]').forEach(btn=>btn.addEventListener('click',()=>{ if(archiveMode)return; const requested=btn.dataset.viewMode; viewMode=(requested==='list' && viewMode==='list')?'board':requested; renderAll(); }));
   document.getElementById('myTasksBtn')?.addEventListener('click',()=>{ myTasksOnly=!myTasksOnly; archiveMode=false; renderAll(); });
