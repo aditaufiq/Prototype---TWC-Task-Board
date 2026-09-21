@@ -28,9 +28,25 @@ onAuthStateChanged(auth, async (user) => {
   currentAccessLevel =
   currentFirebaseProfile?.accessLevel ||
   'standard';
+  const firebaseMemberId = currentFirebaseProfile?.memberId || user.uid;
+
+if (!members.some(m => m.id === firebaseMemberId)) {
+  members.push({
+    id: firebaseMemberId,
+    name: currentFirebaseProfile?.username || user.displayName || 'User',
+    email: user.email || '',
+    color: '#0F766E',
+    role: currentFirebaseProfile?.role || 'member',
+    active: true
+  });
+}
+
+currentRole = firebaseMemberId;
+renderAll();
   console.log('Current Firebase user:', currentFirebaseUser);
   console.log('Current Firebase profile:', currentFirebaseProfile);
   console.log('Current access level:', currentAccessLevel);
+  console.log('Current dashboard role:', currentRole);
 });
 
 let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null') || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
