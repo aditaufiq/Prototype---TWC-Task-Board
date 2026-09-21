@@ -1682,10 +1682,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <div aria-atomic="true" aria-live="polite" class="notification-toast-wrap" id="notificationToastWrap"></div>
 <script type="module">
   import {
-  getTasks,
-  addTask
-} from './js/firebase.js';
-export const DIVISIONS = [
+    auth,
+    onAuthStateChanged,
+    getUserProfile,
+    getTasks,
+    addTask
+  } from './js/firebase.js';
+  export const DIVISIONS = [
   { id: 'pir', name: 'Product Innovation & Research', color: '#0F766E' },
   { id: 'mkt', name: 'Marketing & Digital', color: '#E2583E' },
   { id: 'ops', name: 'Operations', color: '#C7861B' },
@@ -1756,6 +1759,19 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let expandedDepartments = new Set();
   let currentRole = 'admin';
   let currentAccessLevel = 'standard';
+function makeFirebaseMemberId(profile, user){
+  const username = String(
+    profile?.username ||
+    user?.email?.split('@')[0] ||
+    'user'
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return profile?.memberId || username || user?.uid;
+}
 
 window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   currentRole = memberId || currentRole;
@@ -2076,7 +2092,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
   if(roleTag){
     const isRealAdmin =
-      memberOf(currentRole).role === 'admin';
+  currentAccessLevel === 'all' ||
+  memberOf(currentRole).role === 'admin';
 
     roleTag.textContent =
       isRealAdmin
@@ -3678,7 +3695,45 @@ photoPreview?.addEventListener('pointercancel', () => {
   // Tampilkan Profile Setup
   screen.classList.remove('hidden');
 }
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    currentRole = 'admin';
+    currentAccessLevel = 'standard';
+    return;
+  }
 
+  try {
+    const profile = await getUserProfile(user.uid);
+
+    if (!profile) {
+      showProfileSetup(user);
+      return;
+    }
+
+    const memberId = makeFirebaseMemberId(profile, user);
+
+    window.syncLegacyWorkspaceIdentity(
+      memberId,
+      profile.accessLevel || 'standard',
+      {
+        ...profile,
+        email: profile.email || user.email || ''
+      }
+    );
+
+    enterWorkspace();
+
+    console.log('✅ Workspace identity synced:', {
+      memberId,
+      username: profile.username,
+      role: profile.role,
+      accessLevel: profile.accessLevel
+    });
+
+  } catch (error) {
+    console.error('❌ Gagal sinkronisasi identity Firebase:', error);
+  }
+});
 function showWelcome(){
   const screen=document.getElementById('welcomeScreen');
   if(screen){ screen.classList.remove('hidden'); }
