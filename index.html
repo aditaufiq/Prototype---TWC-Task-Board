@@ -1681,6 +1681,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 
 <div aria-atomic="true" aria-live="polite" class="notification-toast-wrap" id="notificationToastWrap"></div>
 <script type="module">
+  import {
+  getTasks,
+  addTask
+} from './js/firebase.js';
 export const DIVISIONS = [
   { id: 'pir', name: 'Product Innovation & Research', color: '#0F766E' },
   { id: 'mkt', name: 'Marketing & Digital', color: '#E2583E' },
@@ -1818,6 +1822,68 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     attachments: Array.isArray(t.attachments) ? t.attachments : [],
     archived: t.archived === true
   }));
+  async function loadTasksFromFirestore(profile){
+  try {
+    const remoteTasks = await getTasks();
+
+    if (remoteTasks.length > 0) {
+      tasks = remoteTasks.map(t => ({
+        ...t,
+        product: t.product || '',
+        createdBy: t.createdBy || 'admin',
+        createdAt: t.createdAt || new Date().toISOString(),
+        updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
+        statusHistory:
+          Array.isArray(t.statusHistory) && t.statusHistory.length
+            ? t.statusHistory
+            : [{
+                status: t.status || 'todo',
+                at: t.createdAt || new Date().toISOString(),
+                by: t.createdBy || 'admin'
+              }],
+        contributors: Array.isArray(t.contributors) ? t.contributors : [],
+        attachments: Array.isArray(t.attachments) ? t.attachments : [],
+        archived: t.archived === true
+      }));
+
+      localStorage.setItem(
+        'taskboard_data_v2',
+        JSON.stringify(tasks)
+      );
+
+      console.log(
+        'Tasks loaded from Firestore:',
+        tasks.length
+      );
+
+      renderAll();
+      return;
+    }
+
+    // Firestore masih kosong.
+    // Hanya akun dengan accessLevel "all"
+    // yang boleh melakukan initial migration.
+    if (profile?.accessLevel === 'all' && tasks.length > 0) {
+      for (const task of tasks) {
+        await addTask(task);
+      }
+
+      console.log(
+        'Initial task migration completed:',
+        tasks.length
+      );
+
+      return;
+    }
+
+    console.log('Firestore tasks masih kosong.');
+  } catch (error) {
+    console.error(
+      'Gagal mengambil tasks dari Firestore:',
+      error
+    );
+  }
+}
 
   function save(){ localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks)); }
   function saveMembers(){ localStorage.setItem('taskboard_members_v2', JSON.stringify(members)); }
@@ -3581,15 +3647,17 @@ function showWelcome(){
 
     const profile = await window.getUserProfile(user.uid);
 
-    console.log('Firebase user:', user);
-    console.log('Firestore profile:', profile);
+console.log('Firebase user:', user);
+console.log('Firestore profile:', profile);
 
-    if (!profile) {
+if (!profile) {
   showProfileSetup(user);
   return;
 }
 
-    enterWorkspace();
+await loadTasksFromFirestore(profile);
+
+enterWorkspace();
 
   } catch (error) {
     console.error('Google login / profile check gagal:', error);

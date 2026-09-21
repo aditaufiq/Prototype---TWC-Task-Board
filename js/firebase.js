@@ -10,9 +10,13 @@ import {
 
 import {
   getFirestore,
+  collection,
   doc,
   getDoc,
-  setDoc
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -70,6 +74,41 @@ async function createUserProfile(uid, profileData) {
   return getUserProfile(uid);
 }
 
+async function getTasks() {
+  const tasksRef = collection(db, "tasks");
+  const snapshot = await getDocs(tasksRef);
+
+  return snapshot.docs.map(docSnap => docSnap.data());
+}
+
+async function addTask(task) {
+  const taskRef = doc(db, "tasks", String(task.id));
+
+  await setDoc(taskRef, {
+    ...task,
+    updatedAt: new Date().toISOString()
+  });
+
+  return task;
+}
+
+async function updateTask(taskId, taskData) {
+  const taskRef = doc(db, "tasks", String(taskId));
+
+  await updateDoc(taskRef, {
+    ...taskData,
+    updatedAt: new Date().toISOString()
+  });
+
+  return taskData;
+}
+
+async function deleteTask(taskId) {
+  const taskRef = doc(db, "tasks", String(taskId));
+
+  await deleteDoc(taskRef);
+}
+
 window.loginWithGoogle = loginWithGoogle;
 window.getUserProfile = getUserProfile;
 window.createUserProfile = createUserProfile;
@@ -84,5 +123,9 @@ export {
   onAuthStateChanged,
   loginWithGoogle,
   getUserProfile,
-  createUserProfile
+  createUserProfile,
+  getTasks,
+  addTask,
+  updateTask,
+  deleteTask
 };

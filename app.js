@@ -16,6 +16,8 @@ import {
   signOut,
   loginWithGoogle,
   getUserProfile,
+  getTasks,
+  addTask,
   onAuthStateChanged
 } from './js/firebase.js';
 
@@ -61,6 +63,16 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   currentAccessLevel =
     currentFirebaseProfile?.accessLevel ||
     'standard';
+
+  const remoteTasks = await getTasks();
+
+if (remoteTasks.length > 0) {
+  tasks = remoteTasks;
+} else if (currentAccessLevel === 'all' && tasks.length > 0) {
+  for (const task of tasks) {
+    await addTask(task);
+  }
+}
 
   const firebaseMemberId =
     currentFirebaseProfile?.memberId ||
