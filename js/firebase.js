@@ -4,7 +4,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  signOut
+  signOut,
+  onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
 import {
@@ -80,6 +81,7 @@ export {
   provider,
   signInWithPopup,
   signOut,
+  onAuthStateChanged,
   loginWithGoogle,
   getUserProfile,
   createUserProfile

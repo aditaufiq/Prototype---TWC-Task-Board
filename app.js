@@ -14,10 +14,21 @@ import {
   provider,
   signInWithPopup,
   signOut,
-  loginWithGoogle
+  loginWithGoogle,
+  getUserProfile,
+  onAuthStateChanged
 } from './js/firebase.js';
 
 console.log('Firebase Auth loaded:', auth);
+onAuthStateChanged(auth, async (user) => {
+  if (!user) return;
+
+  currentFirebaseUser = user;
+  currentFirebaseProfile = await getUserProfile(user.uid);
+
+  console.log('Current Firebase user:', currentFirebaseUser);
+  console.log('Current Firebase profile:', currentFirebaseProfile);
+});
 
 let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null') || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
 
@@ -29,6 +40,8 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let activeDepartmenton = 'all';
   let activeProduct = null;
   let expandedDepartments = new Set();
+  let currentFirebaseUser = null;
+  let currentFirebaseProfile = null;
   let currentRole = 'admin';
   let notificationFilter = 'all';
   let dashboardMode = true;
