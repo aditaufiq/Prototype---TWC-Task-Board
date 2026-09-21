@@ -66,18 +66,31 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
     currentFirebaseProfile?.memberId ||
     user.uid;
 
-  if (!members.some(m => m.id === firebaseMemberId)) {
-    members.push({
-      id: firebaseMemberId,
-      name: currentFirebaseProfile?.username ||
-            user.displayName ||
-            'User',
-      email: user.email || '',
-      color: '#0F766E',
-      role: currentFirebaseProfile?.role || 'member',
-      active: true
-    });
-  }
+  const firebaseMember = members.find(
+  m => m.id === firebaseMemberId
+);
+
+if (!firebaseMember) {
+  members.push({
+    id: firebaseMemberId,
+    name: currentFirebaseProfile?.username || user.displayName || 'User',
+    email: user.email || '',
+    color: '#0F766E',
+    role: currentFirebaseProfile?.role || 'member',
+    active: true
+  });
+} else {
+  firebaseMember.name =
+    currentFirebaseProfile?.username ||
+    user.displayName ||
+    'User';
+
+  firebaseMember.email = user.email || '';
+  firebaseMember.role =
+    currentFirebaseProfile?.role || 'member';
+
+  firebaseMember.active = true;
+}
 
   currentRole = firebaseMemberId;
 
