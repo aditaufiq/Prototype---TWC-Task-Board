@@ -2890,14 +2890,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   });
 
   document.getElementById('cancelReplyBtn').addEventListener('click', cancelReply);
-
-
-
-  // ---- role switch ----
-document.getElementById('roleSelect').addEventListener('change', () => {
-  renderAll();
-});
-
   document.querySelectorAll('[data-view-mode]').forEach(btn=>btn.addEventListener('click',()=>{ if(archiveMode)return; const requested=btn.dataset.viewMode; viewMode=(requested==='list' && viewMode==='list')?'board':requested; renderAll(); }));
   document.getElementById('myTasksBtn')?.addEventListener('click',()=>{ myTasksOnly=!myTasksOnly; archiveMode=false; renderAll(); });
   document.getElementById('archiveViewBtn')?.addEventListener('click',()=>{ archiveMode=!archiveMode; viewMode=archiveMode?'list':'board'; selectedTaskIds.clear(); renderAll(); });
