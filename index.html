@@ -2092,13 +2092,19 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
   if(roleTag){
     const isRealAdmin =
-  currentAccessLevel === 'all' ||
   memberOf(currentRole).role === 'admin';
 
-    roleTag.textContent =
-      isRealAdmin
-        ? 'Admin — full access'
-        : 'Member';
+const hasAllAccess =
+  currentAccessLevel === 'all';
+
+roleTag.textContent =
+  isRealAdmin
+    ? 'Admin'
+    : 'Member';
+
+roleTag.className =
+  'role-tag ' +
+  (isRealAdmin ? 'admin' : 'member');
 
     roleTag.className =
       'role-tag ' +
@@ -3720,8 +3726,6 @@ onAuthStateChanged(auth, async (user) => {
         email: profile.email || user.email || ''
       }
     );
-
-    enterWorkspace();
 
     console.log('✅ Workspace identity synced:', {
       memberId,

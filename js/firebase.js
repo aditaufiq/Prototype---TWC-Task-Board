@@ -35,6 +35,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 
+provider.setCustomParameters({
+  prompt: 'select_account'
+});
+
 async function loginWithGoogle() {
   try {
     const result = await signInWithPopup(auth, provider);
