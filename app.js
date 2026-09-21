@@ -20,34 +20,6 @@ import {
 } from './js/firebase.js';
 
 console.log('Firebase Auth loaded:', auth);
-onAuthStateChanged(auth, async (user) => {
-  if (!user) return;
-
-  currentFirebaseUser = user;
-  currentFirebaseProfile = await getUserProfile(user.uid);
-  currentAccessLevel =
-  currentFirebaseProfile?.accessLevel ||
-  'standard';
-  const firebaseMemberId = currentFirebaseProfile?.memberId || user.uid;
-
-if (!members.some(m => m.id === firebaseMemberId)) {
-  members.push({
-    id: firebaseMemberId,
-    name: currentFirebaseProfile?.username || user.displayName || 'User',
-    email: user.email || '',
-    color: '#0F766E',
-    role: currentFirebaseProfile?.role || 'member',
-    active: true
-  });
-}
-
-currentRole = firebaseMemberId;
-renderAll();
-  console.log('Current Firebase user:', currentFirebaseUser);
-  console.log('Current Firebase profile:', currentFirebaseProfile);
-  console.log('Current access level:', currentAccessLevel);
-  console.log('Current dashboard role:', currentRole);
-});
 
 let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null') || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
 
@@ -80,7 +52,42 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
     contributors: Array.isArray(t.contributors) ? t.contributors : [],
     attachments: Array.isArray(t.attachments) ? t.attachments : []
   }));
+  onAuthStateChanged(auth, async (user) => {
+  if (!user) return;
 
+  currentFirebaseUser = user;
+  currentFirebaseProfile = await getUserProfile(user.uid);
+
+  currentAccessLevel =
+    currentFirebaseProfile?.accessLevel ||
+    'standard';
+
+  const firebaseMemberId =
+    currentFirebaseProfile?.memberId ||
+    user.uid;
+
+  if (!members.some(m => m.id === firebaseMemberId)) {
+    members.push({
+      id: firebaseMemberId,
+      name: currentFirebaseProfile?.username ||
+            user.displayName ||
+            'User',
+      email: user.email || '',
+      color: '#0F766E',
+      role: currentFirebaseProfile?.role || 'member',
+      active: true
+    });
+  }
+
+  currentRole = firebaseMemberId;
+
+  renderAll();
+
+  console.log('Current Firebase user:', currentFirebaseUser);
+  console.log('Current Firebase profile:', currentFirebaseProfile);
+  console.log('Current access level:', currentAccessLevel);
+  console.log('Current dashboard role:', currentRole);
+});
   function save(){ localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks)); }
   function saveMembers(){ localStorage.setItem('taskboard_members_v2', JSON.stringify(members)); }
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
