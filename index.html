@@ -3156,7 +3156,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     document.execCommand('insertHTML', false, sanitizeRichHtml(html));
   });
 
-  document.getElementById('saveBtn').addEventListener('click', () => {
+  document.getElementById('saveBtn').addEventListener('click', async () => {
     const title = document.getElementById('fTitle').value.trim();
     if (!title) return;
     const data = {
@@ -3198,12 +3198,57 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       }
       if (oldStatus !== task.status) { logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`); if (task.assignee !== currentRole && currentRole !== 'admin') makeNotification(task.assignee, 'status', 'Task status updated', `${task.title} → ${STATUS_LABEL[task.status]}`, task.id); }
     } else {
-      const now = new Date().toISOString();
-      const newTask = { id: Date.now(), status: 'todo', ...data, createdBy: currentRole, createdAt: now, updatedAt: now, statusHistory: [{ status: 'todo', at: now, by: currentRole }] };
-      tasks.push(newTask);
-      logActivity(newTask.id, 'create', `Created for ${memberOf(newTask.assignee).name}`);
-      makeNotification(newTask.assignee, 'assigned', 'New task assigned to you', `${newTask.title} — due ${formatDate(newTask.due)}`, newTask.id);
-    }
+  const now = new Date().toISOString();
+
+  const newTask = {
+    id: Date.now(),
+    status: 'todo',
+    ...data,
+    createdBy: currentRole,
+    createdAt: now,
+    updatedAt: now,
+    statusHistory: [
+      {
+        status: 'todo',
+        at: now,
+        by: currentRole
+      }
+    ]
+  };
+
+  try {
+    // 1. Simpan ke Firestore dulu
+    await window.addTask(newTask);
+
+    // 2. Kalau sukses, baru masukkan ke state lokal
+    tasks.push(newTask);
+
+    logActivity(
+      newTask.id,
+      'create',
+      `Created for ${memberOf(newTask.assignee).name}`
+    );
+
+    makeNotification(
+      newTask.assignee,
+      'assigned',
+      'New task assigned to you',
+      `${newTask.title} — due ${formatDate(newTask.due)}`,
+      newTask.id
+    );
+
+    console.log('✅ Task berhasil disimpan ke Firestore:', newTask);
+
+  } catch (error) {
+    console.error('❌ Gagal menyimpan task ke Firestore:', error);
+
+    alert(
+      'Task gagal disimpan ke server. Periksa koneksi atau Firebase Rules terlebih dahulu.'
+    );
+
+    return;
+  }
+}
     save();
     overlay.classList.remove('open');
     resetForm();

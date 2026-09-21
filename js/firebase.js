@@ -112,6 +112,10 @@ async function deleteTask(taskId) {
 window.loginWithGoogle = loginWithGoogle;
 window.getUserProfile = getUserProfile;
 window.createUserProfile = createUserProfile;
+window.addTask = addTask;
+window.updateTask = updateTask;
+window.deleteTask = deleteTask;
+window.getTasks = getTasks;
 
 export {
   app,
