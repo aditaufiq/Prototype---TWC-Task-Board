@@ -16,7 +16,8 @@ import {
   getDocs,
   setDoc,
   updateDoc,
-  deleteDoc
+  deleteDoc,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -82,12 +83,42 @@ async function getTasks() {
 }
 
 async function addTask(task) {
-  const taskRef = doc(db, "tasks", String(task.id));
+  const counterRef = doc(db, "counters", "tasks");
+
+  const nextNumber = await runTransaction(db, async (transaction) => {
+    const counterSnap = await transaction.get(counterRef);
+
+    const currentNumber = counterSnap.exists()
+      ? Number(counterSnap.data().lastNumber || 0)
+      : 0;
+
+    const next = currentNumber + 1;
+
+    transaction.set(
+      counterRef,
+      {
+        lastNumber: next,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+
+    return next;
+  });
+
+  const taskId = `task-${String(nextNumber).padStart(3, "0")}`;
+
+  // Ganti ID timestamp menjadi ID urut
+  task.id = taskId;
+
+  const taskRef = doc(db, "tasks", taskId);
 
   await setDoc(taskRef, {
     ...task,
     updatedAt: new Date().toISOString()
   });
+
+  console.log("✅ Task berhasil disimpan ke Firestore:", task);
 
   return task;
 }
