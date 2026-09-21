@@ -2031,10 +2031,38 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     if (notifications.length > 3000) notifications = notifications.slice(-3000);
     saveNotifications();
     if (userId === currentRole) {
-      showNotificationToast(notification);
-      playNotificationSound(type === 'mention' ? 'mention' : type === 'assigned' ? 'assigned' : 'message');
-    }
+  let toasted = [];
+
+  try {
+    toasted = JSON.parse(
+      sessionStorage.getItem('taskboard_toasted_notifications_v1') || '[]'
+    );
+  } catch (e) {}
+
+  toasted.push(String(notification.id));
+
+  if (toasted.length > 200) {
+    toasted = toasted.slice(-200);
   }
+
+  try {
+    sessionStorage.setItem(
+      'taskboard_toasted_notifications_v1',
+      JSON.stringify(toasted)
+    );
+  } catch (e) {}
+
+  showNotificationToast(notification);
+
+  playNotificationSound(
+    type === 'mention'
+      ? 'mention'
+      : type === 'assigned'
+        ? 'assigned'
+        : 'message'
+  );
+  }
+}
   function usersMentioned(text){
     const lower = String(text || '').toLowerCase();
     const mentioned = members.filter(m => lower.includes(`@${m.name.toLowerCase()}`));
@@ -2294,7 +2322,7 @@ roleTag.className =
     }).join('');
     board.className=`task-list-view ${isAdmin()?'list-admin':'list-member'}`;
     board.innerHTML=`<div class="task-list-head">${isAdmin()?'<span></span>':''}<span>Task</span><span>PIC</span><span>Status</span><span>Priority</span><span>Due</span><span>Activity</span></div>${rows || `<div class="task-list-empty"><strong>${archiveMode?'No archived tasks':myTasksOnly?'You are all clear':'Nothing to show'}</strong><span>${archiveMode?'Completed tasks you archive will live here.':myTasksOnly?'No tasks are currently assigned to or supported by you.':'Try a different keyword or clear your filters.'}</span></div>`}`;
-    board.querySelectorAll('.task-list-row').forEach(row=>row.addEventListener('click',e=>{ if(e.target.closest('[data-task-select]')) return; openDetail(Number(row.dataset.taskId)); }));
+    board.querySelectorAll('.task-list-row').forEach(row=>row.addEventListener('click',e=>{ if(e.target.closest('[data-task-select]')) return; openDetail(row.dataset.taskId); }));
     board.querySelectorAll('[data-task-select]').forEach(cb=>cb.addEventListener('change',e=>{const id=Number(e.target.dataset.taskSelect); if(e.target.checked)selectedTaskIds.add(id); else selectedTaskIds.delete(id); renderBulkBar(); }));
     renderBulkBar();
     renderActiveFilters();
@@ -2400,7 +2428,7 @@ roleTag.className =
       card.addEventListener('dragend', () => card.classList.remove('dragging'));
       card.addEventListener('click', () => {
         if (dragged){ dragged = false; return; }
-        openDetail(parseInt(card.dataset.id));
+        openDetail(card.dataset.id);
       });
     });
     board.querySelectorAll('.column').forEach(col => {
@@ -2409,7 +2437,7 @@ roleTag.className =
       col.addEventListener('drop', e => {
         e.preventDefault();
         col.classList.remove('drag-over');
-        const id = parseInt(e.dataTransfer.getData('text/plain'));
+        const id = e.dataTransfer.getData('text/plain');
         const task = tasks.find(t => t.id === id);
         if (task){
           const targetStatus = col.dataset.status;
@@ -4190,4 +4218,3 @@ body{overflow:auto!important}
 @media(max-width:950px){.dashboard-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-two-col,.dashboard-bottom-grid{grid-template-columns:1fr}.dash-status-row{grid-template-columns:140px 1fr 38px}}
 @media(max-width:600px){.dashboard-hero-compact{min-height:0!important}.dashboard-hero-compact .dashboard-hero-progress{display:none}.dashboard-kpi-grid{gap:.5rem}.dashboard-two-col,.dashboard-bottom-grid{gap:.5rem}.dash-attention-grid{grid-template-columns:1fr}.dash-snapshot-grid{grid-template-columns:repeat(2,1fr)}.dash-dept-row{grid-template-columns:1fr 42px}.dash-dept-track{grid-column:1/-1}.dash-status-row{grid-template-columns:115px 1fr 34px}}
 </style>
-
