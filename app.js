@@ -272,7 +272,11 @@ if (!firebaseMember) {
   function saveAll(){ save(); saveMembers(); saveActivities(); saveMessages(); saveNotifications(); saveProducts(); }
   function divisionOf(id){ return DIVISIONS.find(d => d.id === id); }
   function memberOf(id){ return members.find(m => m.id === id) || (id === 'admin' || id === '__admin__' ? { name: 'Admin', color: '#344054' } : { name: '?', color: '#999' }); }
-  function isAdmin(){ return currentRole === 'admin' || memberOf(currentRole).role === 'admin'; }
+  function isAdmin(){
+  return currentAccessLevel === 'all'
+    || currentRole === 'admin'
+    || memberOf(currentRole).role === 'admin';
+}
   function canManageTask(task){ return !!task && (isAdmin() || currentRole === task.assignee); }
   function canEditTask(task){ return canManageTask(task); }
 
@@ -284,8 +288,13 @@ if (!firebaseMember) {
     sel.innerHTML = `<option value="admin">Admin</option>` +
       activeMembers.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join('');
     sel.value = currentRole;
-    document.getElementById('roleTag').textContent = isAdmin() ? 'Admin — full access' : 'Member';
-    document.getElementById('roleTag').className = 'role-tag ' + (isAdmin() ? 'admin' : 'member');
+    document.getElementById('roleTag').textContent =
+  memberOf(currentRole).role === 'admin'
+    ? 'Admin — full access'
+    : 'Member';
+    document.getElementById('roleTag').className =
+  'role-tag ' +
+  (memberOf(currentRole).role === 'admin' ? 'admin' : 'member');
     document.getElementById('addBtn').style.display = isAdmin() ? 'inline-block' : 'none';
     document.getElementById('productsBtn').style.display = isAdmin() ? 'block' : 'none';
     document.getElementById('membersBtn').style.display = isAdmin() ? 'block' : 'none';
