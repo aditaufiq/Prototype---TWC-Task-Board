@@ -1829,6 +1829,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
   tasks = tasks.map(t => ({
     ...t,
+    id: String(t.id),
     product: t.product || '',
     createdBy: t.createdBy || 'admin',
     createdAt: t.createdAt || new Date().toISOString(),
@@ -1845,6 +1846,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     if (remoteTasks.length > 0) {
       tasks = remoteTasks.map(t => ({
         ...t,
+        id: String(t.id),
         product: t.product || '',
         createdBy: t.createdBy || 'admin',
         createdAt: t.createdAt || new Date().toISOString(),
