@@ -929,12 +929,22 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
 
 
   // ---- role switch ----
-  document.getElementById('roleSelect').addEventListener('change', (e) => {
-    currentRole = e.target.value;
-    document.getElementById('notificationPanel')?.classList.remove('open');
-    renderAll();
-    maybeToastLatestNotification();
-  });
+// Identitas workspace sekarang mengikuti akun Firebase yang sedang login.
+// Dropdown lama tidak boleh digunakan untuk mengganti identitas user.
+document.getElementById('roleSelect').addEventListener('change', () => {
+  if (!currentFirebaseUser) return;
+
+  const firebaseMemberId =
+    currentFirebaseProfile?.memberId ||
+    currentFirebaseUser.uid;
+
+  currentRole = firebaseMemberId;
+
+  document.getElementById('notificationPanel')?.classList.remove('open');
+
+  renderAll();
+  maybeToastLatestNotification();
+});
 
   // ---- task search + filters ----
   function refreshTaskFilters(){
