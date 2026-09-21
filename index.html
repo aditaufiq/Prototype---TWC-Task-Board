@@ -1753,9 +1753,43 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let currentRole = 'admin';
   let currentAccessLevel = 'standard';
 
-window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel){
+window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   currentRole = memberId || currentRole;
   currentAccessLevel = accessLevel || 'standard';
+
+  if (memberId) {
+    const existingMember = members.find(m => m.id === memberId);
+
+    if (existingMember) {
+      existingMember.name =
+        profile?.username ||
+        existingMember.name ||
+        'User';
+
+      existingMember.email =
+        profile?.email ||
+        existingMember.email ||
+        '';
+
+      existingMember.role =
+        profile?.role ||
+        existingMember.role ||
+        'member';
+
+      existingMember.active = true;
+
+    } else {
+      members.push({
+        id: memberId,
+        name: profile?.username || 'User',
+        email: profile?.email || '',
+        color: '#0F766E',
+        role: profile?.role || 'member',
+        active: true
+      });
+    }
+  }
+
   renderAll();
 };
   let notificationFilter = 'all';

@@ -96,7 +96,8 @@ if (!firebaseMember) {
 
 window.syncLegacyWorkspaceIdentity?.(
   firebaseMemberId,
-  currentAccessLevel
+  currentAccessLevel,
+  currentFirebaseProfile
 );
 
 renderAll();
