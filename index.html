@@ -1277,6 +1277,129 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 }
 
 </style>
+<style>
+/* ===== TWC SIDEBAR PROFILE — APPLE STYLE ===== */
+
+.sidebar .role-box{
+  margin:0 0 1rem !important;
+  padding:0 !important;
+  background:transparent !important;
+  border:0 !important;
+  box-shadow:none !important;
+}
+
+.sidebar-profile{
+  display:flex;
+  align-items:center;
+  gap:.68rem;
+
+  width:100%;
+  min-width:0;
+
+  padding:.5rem .55rem;
+
+  border-radius:13px;
+
+  background:rgba(255,255,255,.46);
+  border:1px solid rgba(255,255,255,.72);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.8),
+    0 5px 16px rgba(31,36,48,.025);
+
+  backdrop-filter:blur(14px) saturate(120%);
+  -webkit-backdrop-filter:blur(14px) saturate(120%);
+
+  transition:
+    background .18s ease,
+    box-shadow .18s ease,
+    transform .18s ease;
+}
+
+.sidebar-profile:hover{
+  background:rgba(255,255,255,.62);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.88),
+    0 7px 20px rgba(31,36,48,.04);
+
+  transform:translateY(-1px);
+}
+
+.sidebar-profile-avatar{
+  position:relative;
+
+  width:36px;
+  height:36px;
+  min-width:36px;
+
+  display:grid;
+  place-items:center;
+
+  overflow:hidden;
+  border-radius:50%;
+
+  background:linear-gradient(
+    145deg,
+    #edf3f1,
+    #dfeae6
+  );
+
+  color:#38645e;
+
+  font-size:.7rem;
+  font-weight:700;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 2px 7px rgba(31,49,46,.06);
+}
+
+.sidebar-profile-avatar::after{
+  content:"";
+  position:absolute;
+  inset:0;
+
+  border-radius:50%;
+  border:1px solid rgba(255,255,255,.6);
+
+  pointer-events:none;
+}
+
+.sidebar-profile-avatar img{
+  position:absolute;
+  inset:0;
+
+  width:100%;
+  height:100%;
+
+  object-fit:cover;
+
+  transform-origin:center;
+  pointer-events:none;
+}
+
+.sidebar-profile-name{
+  min-width:0;
+
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+
+  color:#193c38;
+
+  font-size:.75rem;
+  line-height:1.2;
+
+  font-weight:650;
+  letter-spacing:-.01em;
+}
+
+.sidebar .role-box label,
+.sidebar .role-box .role-tag{
+  display:none !important;
+}
+</style>
 </head>
 <body>
 <div class="welcome-screen" id="welcomeScreen">
@@ -1401,8 +1524,14 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <h1>Task Board</h1>
 <span class="sub">PT Taman Wisata Candi Borobudur</span>
 <div class="role-box">
-  <label>Signed in as</label>
-  <div class="signed-in-user" id="signedInUser">—</div>
+  <div class="sidebar-profile" id="sidebarProfile">
+    <div class="sidebar-profile-avatar" id="sidebarProfileAvatar">
+      <span id="sidebarProfileInitial">?</span>
+    </div>
+
+    <div class="sidebar-profile-name" id="signedInUser">—</div>
+  </div>
+
   <span class="role-tag" id="roleTag"></span>
 </div>
 <ul class="div-list" id="divList"></ul>
@@ -1760,6 +1889,7 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let expandedDepartments = new Set();
   let currentRole = 'admin';
   let currentAccessLevel = 'standard';
+  let currentUserProfile = null;
 function makeFirebaseMemberId(profile, user){
   const username = String(
     profile?.username ||
@@ -1775,6 +1905,7 @@ function makeFirebaseMemberId(profile, user){
 }
 
 window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
+  currentUserProfile = profile || null;
   currentRole = memberId || currentRole;
   currentAccessLevel = accessLevel || 'standard';
 
@@ -2113,12 +2244,51 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
   function renderRoleSelect(){
   const userLabel = document.getElementById('signedInUser');
+const avatar = document.getElementById('sidebarProfileAvatar');
 
-  if(userLabel){
-    userLabel.textContent =
-      memberOf(currentRole).name || 'User';
+const username =
+  currentUserProfile?.username ||
+  memberOf(currentRole).name ||
+  'User';
+
+if(userLabel){
+  userLabel.textContent = username;
+}
+
+if(avatar){
+  const photo = currentUserProfile?.profilePhoto || null;
+
+  if(photo){
+    const position =
+      currentUserProfile?.profilePhotoPosition || {};
+
+    const x = Number(position.x || 0);
+    const y = Number(position.y || 0);
+    const zoom = Number(position.zoom || 1);
+
+    avatar.innerHTML = `
+      <img
+        src="${photo}"
+        alt="Profile photo"
+        draggable="false"
+      >
+    `;
+
+    const img = avatar.querySelector('img');
+
+    if(img){
+      img.style.transform =
+        `translate(${x}px, ${y}px) scale(${zoom})`;
+    }
+
+  }else{
+    avatar.innerHTML = `
+      <span>
+        ${escapeHtml(username.charAt(0).toUpperCase())}
+      </span>
+    `;
   }
-
+}
   const roleTag = document.getElementById('roleTag');
 
   if(roleTag){
