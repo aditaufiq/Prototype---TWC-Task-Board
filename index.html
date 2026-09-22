@@ -1682,12 +1682,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <div aria-atomic="true" aria-live="polite" class="notification-toast-wrap" id="notificationToastWrap"></div>
 <script type="module">
   import {
-    auth,
-    onAuthStateChanged,
-    getUserProfile,
-    getTasks,
-    addTask
-  } from './js/firebase.js';
+  auth,
+  onAuthStateChanged,
+  getUserProfile,
+  getTasks,
+  addTask,
+  updateTask
+} from './js/firebase.js';
   export const DIVISIONS = [
   { id: 'pir', name: 'Product Innovation & Research', color: '#0F766E' },
   { id: 'mkt', name: 'Marketing & Digital', color: '#E2583E' },
@@ -3269,7 +3270,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
 
   try {
     // 1. Update Firestore terlebih dahulu
-    await window.updateTask(updatedTask);
+    await updateTask(updatedTask.id, updatedTask);
 
     // 2. Kalau Firestore sukses, baru update state lokal
     Object.assign(task, updatedTask);
