@@ -4422,3 +4422,203 @@ body{overflow:auto!important}
   color:#8a9693!important;
 }
 </style>
+<style>
+/* ===== APPLE-STYLE FLOATING TASK CONTROLS ===== */
+
+/* Outer container: hampir hilang */
+.board-tools{
+  display:flex!important;
+  align-items:center!important;
+  gap:.45rem!important;
+
+  width:min(100%,1180px)!important;
+  margin:0 auto .55rem!important;
+  padding:.18rem!important;
+
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+
+
+/* Search dibuat compact */
+.board-tools .search-wrap{
+  flex:1 1 320px!important;
+  min-width:260px!important;
+  max-width:390px!important;
+}
+
+.board-tools .task-search{
+  width:100%!important;
+  height:34px!important;
+  padding:.42rem .72rem .42rem 1.9rem!important;
+
+  border-radius:999px!important;
+  border:1px solid rgba(31,36,48,.055)!important;
+
+  background:rgba(255,255,255,.66)!important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.82),
+    0 3px 12px rgba(31,49,46,.025)!important;
+
+  backdrop-filter:blur(14px)!important;
+  -webkit-backdrop-filter:blur(14px)!important;
+
+  font-size:.60rem!important;
+}
+
+.board-tools .task-search:focus{
+  background:rgba(255,255,255,.84)!important;
+  border-color:rgba(15,118,110,.10)!important;
+  box-shadow:
+    0 0 0 3px rgba(15,118,110,.045),
+    0 4px 14px rgba(31,49,46,.035)!important;
+}
+
+
+/* Filter = pill kecil */
+.board-tools .task-filter{
+  flex:0 0 auto!important;
+  width:auto!important;
+  height:34px!important;
+  min-width:108px!important;
+  padding:.42rem .65rem!important;
+
+  border-radius:999px!important;
+  border:1px solid rgba(31,36,48,.05)!important;
+
+  background:rgba(255,255,255,.58)!important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.78),
+    0 3px 11px rgba(31,49,46,.02)!important;
+
+  backdrop-filter:blur(14px)!important;
+  -webkit-backdrop-filter:blur(14px)!important;
+
+  font-size:.58rem!important;
+  color:#64716d!important;
+}
+
+
+/* Clear jangan kelihatan seperti tombol besar */
+#clearFiltersBtn{
+  flex:0 0 auto!important;
+  height:34px!important;
+  padding:0 .7rem!important;
+
+  border:0!important;
+  border-radius:999px!important;
+
+  background:transparent!important;
+  color:#89938F!important;
+  box-shadow:none!important;
+
+  font-size:.58rem!important;
+}
+
+#clearFiltersBtn:hover{
+  background:rgba(255,255,255,.55)!important;
+  color:#53615C!important;
+  box-shadow:none!important;
+  transform:none!important;
+}
+
+
+/* Jumlah task dibuat sebagai micro text */
+.task-result-meta{
+  flex:0 0 auto!important;
+  margin-left:.15rem!important;
+  padding:0!important;
+  font-size:.55rem!important;
+  color:#98A29E!important;
+  white-space:nowrap!important;
+}
+
+
+/* Segmented control tetap jadi satu objek kecil */
+.board-view-controls{
+  flex:0 0 auto!important;
+  margin-left:auto!important;
+
+  display:flex!important;
+  align-items:center!important;
+  gap:.08rem!important;
+
+  width:auto!important;
+  padding:.15rem!important;
+  border-radius:999px!important;
+
+  background:rgba(235,239,237,.68)!important;
+  border:1px solid rgba(255,255,255,.72)!important;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.82),
+    0 3px 12px rgba(31,49,46,.025)!important;
+
+  backdrop-filter:blur(14px)!important;
+  -webkit-backdrop-filter:blur(14px)!important;
+}
+
+.view-toggle{
+  min-width:auto!important;
+  width:auto!important;
+  min-height:26px!important;
+  padding:0 .62rem!important;
+
+  border-radius:999px!important;
+  font-size:.56rem!important;
+  color:#7F8B87!important;
+}
+
+.view-toggle.active{
+  background:rgba(255,255,255,.90)!important;
+  color:#18514B!important;
+
+  box-shadow:
+    0 2px 8px rgba(31,49,46,.055)!important;
+}
+
+
+/* Active filters tetap subtle */
+.active-filters{
+  flex:0 1 auto!important;
+  min-width:0!important;
+  font-size:.54rem!important;
+  color:#8E9995!important;
+}
+
+
+/* Responsive */
+@media(max-width:1000px){
+  .board-tools{
+    flex-wrap:wrap!important;
+  }
+
+  .board-tools .search-wrap{
+    flex:1 1 100%!important;
+    max-width:none!important;
+  }
+
+  .board-view-controls{
+    margin-left:0!important;
+  }
+}
+
+@media(max-width:700px){
+  .board-tools .task-filter{
+    flex:1 1 28%!important;
+    min-width:0!important;
+  }
+
+  .task-result-meta{
+    display:none!important;
+  }
+
+  .board-view-controls{
+    width:100%!important;
+    justify-content:center!important;
+  }
+}
+</style>
