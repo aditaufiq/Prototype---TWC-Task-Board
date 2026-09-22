@@ -4305,3 +4305,120 @@ body{overflow:auto!important}
 @media(max-width:950px){.dashboard-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-two-col,.dashboard-bottom-grid{grid-template-columns:1fr}.dash-status-row{grid-template-columns:140px 1fr 38px}}
 @media(max-width:600px){.dashboard-hero-compact{min-height:0!important}.dashboard-hero-compact .dashboard-hero-progress{display:none}.dashboard-kpi-grid{gap:.5rem}.dashboard-two-col,.dashboard-bottom-grid{gap:.5rem}.dash-attention-grid{grid-template-columns:1fr}.dash-snapshot-grid{grid-template-columns:repeat(2,1fr)}.dash-dept-row{grid-template-columns:1fr 42px}.dash-dept-track{grid-column:1/-1}.dash-status-row{grid-template-columns:115px 1fr 34px}}
 </style>
+<style>
+/* ===== COMPACT + AIRY APPLE-STYLE WORKSPACE ===== */
+
+.summary-wrap{
+  margin-bottom:.55rem!important;
+}
+
+.div-summary{
+  display:flex!important;
+  flex-wrap:nowrap!important;
+  gap:.4rem!important;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+  padding:.05rem .05rem .18rem!important;
+  scrollbar-width:none!important;
+}
+
+.div-summary::-webkit-scrollbar{
+  display:none;
+}
+
+.div-mini{
+  flex:0 0 auto!important;
+  white-space:nowrap!important;
+  padding:.38rem .62rem!important;
+  border-radius:999px!important;
+  font-size:.62rem!important;
+  line-height:1.2!important;
+  color:#64716d!important;
+  background:rgba(255,255,255,.56)!important;
+  border:1px solid rgba(255,255,255,.72)!important;
+  box-shadow:
+    0 4px 14px rgba(31,49,46,.035),
+    inset 0 1px 0 rgba(255,255,255,.78)!important;
+  backdrop-filter:blur(14px)!important;
+  -webkit-backdrop-filter:blur(14px)!important;
+}
+
+.div-mini strong{
+  font-size:.62rem!important;
+  color:#344843!important;
+}
+
+
+/* FILTER BAR — lebih tipis, bukan kotak besar */
+.board-tools{
+  display:grid!important;
+  grid-template-columns:
+    minmax(240px,1.4fr)
+    minmax(120px,.65fr)
+    minmax(105px,.5fr)
+    minmax(105px,.5fr)
+    auto!important;
+  gap:.35rem!important;
+  align-items:center!important;
+  padding:.34rem!important;
+  margin-bottom:.55rem!important;
+  border-radius:15px!important;
+
+  background:rgba(255,255,255,.52)!important;
+  border:1px solid rgba(255,255,255,.72)!important;
+  box-shadow:
+    0 8px 24px rgba(31,49,46,.035),
+    inset 0 1px 0 rgba(255,255,255,.82)!important;
+
+  backdrop-filter:blur(18px) saturate(125%)!important;
+  -webkit-backdrop-filter:blur(18px) saturate(125%)!important;
+}
+
+
+/* Input + filter dibuat kecil dan ringan */
+.board-tools .task-search,
+.board-tools .task-filter,
+#clearFiltersBtn{
+  height:32px!important;
+  min-height:32px!important;
+  border-radius:9px!important;
+  font-size:.60rem!important;
+}
+
+.board-tools .task-search{
+  padding:.4rem .65rem .4rem 1.8rem!important;
+}
+
+.board-tools .task-filter{
+  padding:.4rem .55rem!important;
+}
+
+
+/* jumlah task dibuat kecil */
+.task-result-meta{
+  font-size:.55rem!important;
+  color:#8a9693!important;
+  padding:.02rem .1rem!important;
+}
+
+
+/* Board/List/My Tasks/Archive lebih compact */
+.board-view-controls{
+  border-radius:9px!important;
+  padding:.15rem!important;
+}
+
+.view-toggle{
+  min-height:26px!important;
+  padding:0 .55rem!important;
+  border-radius:7px!important;
+  font-size:.57rem!important;
+}
+
+
+/* Active filter jangan makan tempat */
+.active-filters{
+  font-size:.55rem!important;
+  color:#8a9693!important;
+}
+</style>
