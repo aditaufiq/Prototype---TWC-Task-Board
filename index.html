@@ -3761,7 +3761,18 @@ completeProfileButton?.addEventListener('click', async () => {
 
     console.log('Profile berhasil dibuat:', profile);
 
-    enterWorkspace();
+const memberId = makeFirebaseMemberId(profile, user);
+
+window.syncLegacyWorkspaceIdentity(
+  memberId,
+  profile.accessLevel || 'standard',
+  {
+    ...profile,
+    email: profile.email || user.email || ''
+  }
+);
+
+enterWorkspace();
 
   }catch(error){
     console.error('Gagal membuat profile:', error);
