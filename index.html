@@ -3239,18 +3239,102 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       attachments: pendingAttachments,
     };
     if (editingTaskId){
-      const task = tasks.find(t => t.id === editingTaskId);
-      const oldAssignee = task.assignee;
-      const oldStatus = task.status;
-      Object.assign(task, data, { updatedAt: new Date().toISOString(), createdBy: task.createdBy || currentRole, createdAt: task.createdAt || new Date().toISOString() });
-      task.statusHistory = Array.isArray(task.statusHistory) ? task.statusHistory : [{ status: oldStatus, at: task.createdAt, by: task.createdBy }];
-      logActivity(task.id, 'edit', 'Task details updated');
-      if (oldAssignee !== task.assignee) {
-        logActivity(task.id, 'assign', `${memberOf(oldAssignee).name} → ${memberOf(task.assignee).name}`);
-        makeNotification(task.assignee, 'assigned', 'Task assigned to you', `${task.title} — due ${formatDate(task.due)}`, task.id);
+  const task = tasks.find(t => t.id === editingTaskId);
+
+  if (!task) {
+    alert('Task tidak ditemukan.');
+    return;
+  }
+
+  const oldAssignee = task.assignee;
+  const oldStatus = task.status;
+
+  const updatedTask = {
+    ...task,
+    ...data,
+    id: String(task.id),
+    updatedAt: new Date().toISOString(),
+    createdBy: task.createdBy || currentRole,
+    createdAt: task.createdAt || new Date().toISOString(),
+    statusHistory: Array.isArray(task.statusHistory)
+      ? [...task.statusHistory]
+      : [
+          {
+            status: oldStatus,
+            at: task.createdAt || new Date().toISOString(),
+            by: task.createdBy || currentRole
+          }
+        ]
+  };
+
+  try {
+    // 1. Update Firestore terlebih dahulu
+    await window.updateTask(updatedTask);
+
+    // 2. Kalau Firestore sukses, baru update state lokal
+    Object.assign(task, updatedTask);
+
+    logActivity(
+      task.id,
+      'edit',
+      'Task details updated'
+    );
+
+    if (oldAssignee !== task.assignee) {
+      logActivity(
+        task.id,
+        'assign',
+        `${memberOf(oldAssignee).name} → ${memberOf(task.assignee).name}`
+      );
+
+      makeNotification(
+        task.assignee,
+        'assigned',
+        'Task assigned to you',
+        `${task.title} — due ${formatDate(task.due)}`,
+        task.id
+      );
+    }
+
+    if (oldStatus !== task.status) {
+      logActivity(
+        task.id,
+        'status',
+        `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`
+      );
+
+      if (
+        task.assignee !== currentRole &&
+        currentRole !== 'admin'
+      ) {
+        makeNotification(
+          task.assignee,
+          'status',
+          'Task status updated',
+          `${task.title} → ${STATUS_LABEL[task.status]}`,
+          task.id
+        );
       }
-      if (oldStatus !== task.status) { logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`); if (task.assignee !== currentRole && currentRole !== 'admin') makeNotification(task.assignee, 'status', 'Task status updated', `${task.title} → ${STATUS_LABEL[task.status]}`, task.id); }
-    } else {
+    }
+
+    console.log(
+      '✅ Task berhasil di-update di Firestore:',
+      updatedTask
+    );
+
+  } catch (error) {
+    console.error(
+      '❌ Gagal update task ke Firestore:',
+      error
+    );
+
+    alert(
+      'Task gagal diperbarui di server. Periksa koneksi atau Firebase Rules.'
+    );
+
+    return;
+  }
+} else {
   const now = new Date().toISOString();
 
   const newTask = {
