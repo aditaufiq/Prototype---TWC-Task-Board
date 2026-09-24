@@ -138,15 +138,35 @@ async function updateTask(taskId, taskData) {
   return taskData;
 }
 
+async function updateUserProfile(uid, profileData) {
+  const userRef = doc(db, "users", uid);
+
+  await updateDoc(userRef, {
+    ...profileData,
+    updatedAt: new Date().toISOString()
+  });
+
+  return getUserProfile(uid);
+}
 async function deleteTask(taskId) {
   const taskRef = doc(db, "tasks", String(taskId));
 
   await deleteDoc(taskRef);
 }
+async function updateUserProfile(uid, profileData) {
+  const userRef = doc(db, "users", uid);
 
+  await updateDoc(userRef, {
+    ...profileData,
+    updatedAt: new Date().toISOString()
+  });
+
+  return getUserProfile(uid);
+}
 window.loginWithGoogle = loginWithGoogle;
 window.getUserProfile = getUserProfile;
 window.createUserProfile = createUserProfile;
+window.updateUserProfile = updateUserProfile;
 window.addTask = addTask;
 window.updateTask = updateTask;
 window.deleteTask = deleteTask;
@@ -166,5 +186,6 @@ export {
   getTasks,
   addTask,
   updateTask,
-  deleteTask
+  deleteTask,
+  updateUserProfile
 };
