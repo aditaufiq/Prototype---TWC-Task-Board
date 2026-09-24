@@ -4870,6 +4870,78 @@ document
 
     }
   });
+  /* ===== PROFILE EDITOR — OPEN / CLOSE ===== */
+
+function openProfileEditor(){
+  const overlay = document.getElementById('profileEditOverlay');
+
+  if(!overlay) return;
+
+  const usernameInput =
+    document.getElementById('profileEditUsername');
+
+  const preview =
+    document.getElementById('profileEditPhotoPreview');
+
+  if(usernameInput){
+    usernameInput.value =
+      currentUserProfile?.username || '';
+  }
+
+  if(preview){
+    const photo =
+      currentUserProfile?.profilePhoto || null;
+
+    if(photo){
+      preview.innerHTML = `
+        <img
+          src="${photo}"
+          alt="Profile photo"
+          draggable="false"
+        >
+      `;
+    }else{
+      const username =
+        currentUserProfile?.username || 'User';
+
+      preview.innerHTML = `
+        <span>
+          ${escapeHtml(username.charAt(0).toUpperCase())}
+        </span>
+      `;
+    }
+  }
+
+  overlay.classList.add('open');
+}
+
+document
+  .getElementById('sidebarProfile')
+  ?.addEventListener('click', openProfileEditor);
+
+document
+  .getElementById('profileEditCloseBtn')
+  ?.addEventListener('click', () => {
+    document
+      .getElementById('profileEditOverlay')
+      ?.classList.remove('open');
+  });
+
+document
+  .getElementById('profileEditCancelBtn')
+  ?.addEventListener('click', () => {
+    document
+      .getElementById('profileEditOverlay')
+      ?.classList.remove('open');
+  });
+
+document
+  .getElementById('profileEditOverlay')
+  ?.addEventListener('click', (event) => {
+    if(event.target.id === 'profileEditOverlay'){
+      event.currentTarget.classList.remove('open');
+    }
+  });
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     currentRole = 'admin';
