@@ -153,16 +153,7 @@ async function deleteTask(taskId) {
 
   await deleteDoc(taskRef);
 }
-async function updateUserProfile(uid, profileData) {
-  const userRef = doc(db, "users", uid);
 
-  await updateDoc(userRef, {
-    ...profileData,
-    updatedAt: new Date().toISOString()
-  });
-
-  return getUserProfile(uid);
-}
 window.loginWithGoogle = loginWithGoogle;
 window.getUserProfile = getUserProfile;
 window.createUserProfile = createUserProfile;
