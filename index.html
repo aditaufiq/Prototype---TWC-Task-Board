@@ -3974,8 +3974,71 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     const deptSelect = document.getElementById('fDepartmenton');
     const productSelect = document.getElementById('fProduct');
     deptSelect.innerHTML = DIVISIONS.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
-    document.getElementById('fAssignee').innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-    document.getElementById('fContributors').innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+    function populateAddForm(selectedDivision = null, selectedProduct = null){
+  const deptSelect = document.getElementById('fDepartmenton');
+  const productSelect = document.getElementById('fProduct');
+
+  const editingTask = editingTaskId
+    ? tasks.find(t => t.id === editingTaskId)
+    : null;
+
+  const selectedAssigneeId = editingTask?.assignee || null;
+  const selectedContributorIds = new Set(editingTask?.contributors || []);
+
+  // Member aktif selalu tersedia untuk assignment.
+  // Member inactive hanya dipertahankan bila dia masih menjadi
+  // assignee/contributor dari task yang sedang diedit.
+  const availableAssignees = members.filter(
+    m => m.active !== false || m.id === selectedAssigneeId
+  );
+
+  const availableContributors = members.filter(
+    m => m.active !== false || selectedContributorIds.has(m.id)
+  );
+
+  deptSelect.innerHTML = DIVISIONS
+    .map(d => `<option value="${d.id}">${d.name}</option>`)
+    .join('');
+
+  document.getElementById('fAssignee').innerHTML =
+    availableAssignees
+      .map(m => `
+        <option value="${escapeHtml(m.id)}">
+          ${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}
+        </option>
+      `)
+      .join('');
+
+  document.getElementById('fContributors').innerHTML =
+    availableContributors
+      .map(m => `
+        <option value="${escapeHtml(m.id)}">
+          ${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}
+        </option>
+      `)
+      .join('');
+
+  if (selectedDivision) {
+    deptSelect.value = selectedDivision;
+  }
+
+  const refreshProducts = () => {
+    const products = productListForDivision(deptSelect.value);
+
+    productSelect.innerHTML =
+      `<option value="">No product / General</option>` +
+      products
+        .map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
+        .join('');
+
+    if (selectedProduct && products.includes(selectedProduct)) {
+      productSelect.value = selectedProduct;
+    }
+  };
+
+  deptSelect.onchange = refreshProducts;
+  refreshProducts();
+}
     if (selectedDivision) deptSelect.value = selectedDivision;
     const refreshProducts = () => {
       const products = productListForDivision(deptSelect.value);
@@ -4051,8 +4114,8 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   document.getElementById('editTaskBtn').addEventListener('click', () => {
     const task = tasks.find(t => t.id === currentDetailId);
     if (!task || !canEditTask(task)) return;
-    populateAddForm(task.division, task.product || null);
     editingTaskId = task.id;
+    populateAddForm(task.division, task.product || null);
     pendingImage = task.image || null; pendingAttachments = Array.isArray(task.attachments) ? task.attachments.slice() : [];
     document.getElementById('formModalTitle').textContent = 'Edit Task';
     document.getElementById('saveBtn').textContent = 'Save Changes';
