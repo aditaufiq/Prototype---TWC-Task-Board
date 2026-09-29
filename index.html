@@ -2230,6 +2230,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   subscribeToMembers,
   saveMember,
   deleteMember,
+  subscribeToProducts,
+  saveProductGroup,
+  saveProductGroupAndTasks,
+  seedProductGroupIfMissing,
   getTasks,
   subscribeToTasks,
   addTask,
@@ -2297,7 +2301,11 @@ export const SEED = [
   { id: 7, title: 'Analisis data kunjungan musim liburan', description: 'Olah data jumlah kunjungan selama musim liburan untuk melihat tren dibanding tahun lalu.', division: 'pir', assignee: 'adit', priority: 'medium', due: '2026-09-28', status: 'todo', product: 'Research & Insights' },
 ];
 
-let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null') || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
+// Firestore is the source of truth for shared products.
+// localStorage is kept only as a cache/fallback while the realtime
+// listener is connecting.
+let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null')
+  || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
 
   let tasks = JSON.parse(localStorage.getItem('taskboard_data_v2') || 'null') || SEED;
   let members = JSON.parse(localStorage.getItem('taskboard_members_v2') || 'null') || DEFAULT_MEMBERS;
@@ -2388,6 +2396,10 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let membersRealtimeUserUid = null;
   let membersRealtimeReadyPromise = Promise.resolve();
   let memberMigrationInProgress = false;
+  let unsubscribeProductsRealtime = null;
+  let productsRealtimeUserUid = null;
+  let productsRealtimeReadyPromise = Promise.resolve();
+  let productMigrationInProgress = false;
 
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
 
@@ -2595,16 +2607,18 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                 .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
               saveMembers();
-console.log('🔄 Realtime members synced:', members.length);
-renderAll();
+              console.log('🔄 Realtime members synced:', members.length);
+              renderAll();
 
-// Keep an already-open Manage Members modal in sync too.
-const membersOverlayEl = document.getElementById('membersOverlay');
-if (membersOverlayEl?.classList.contains('open')) {
-  renderMemberRows();
-}
+              // The members modal is not part of renderAll(), so refresh its
+              // rows explicitly when it is currently open. This keeps an
+              // already-open Manage Members window realtime as well.
+              const membersOverlayEl = document.getElementById('membersOverlay');
+              if (membersOverlayEl?.classList.contains('open')) {
+                renderMemberRows();
+              }
 
-await ensureCurrentMemberIfMissing(remoteMembers);
+              await ensureCurrentMemberIfMissing(remoteMembers);
 
               if (!memberMigrationInProgress) finishFirstSnapshot();
               return;
@@ -2653,12 +2667,147 @@ await ensureCurrentMemberIfMissing(remoteMembers);
     return membersRealtimeReadyPromise;
   }
 
+
+  async function startProductsRealtime(profile, user){
+    if (!user?.uid) return;
+
+    if (productsRealtimeUserUid === user.uid && unsubscribeProductsRealtime) {
+      return productsRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeProductsRealtime === 'function') {
+      unsubscribeProductsRealtime();
+      unsubscribeProductsRealtime = null;
+    }
+
+    productsRealtimeUserUid = user.uid;
+    productMigrationInProgress = false;
+
+    productsRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      unsubscribeProductsRealtime = subscribeToProducts(
+        async remoteProducts => {
+          try {
+            const hasRemoteProducts = Object.keys(remoteProducts).some(
+              divisionId => Array.isArray(remoteProducts[divisionId])
+            );
+
+            if (hasRemoteProducts) {
+              const nextProducts = {};
+
+              DIVISIONS.forEach(division => {
+                nextProducts[division.id] = Array.isArray(
+                  remoteProducts[division.id]
+                )
+                  ? [...remoteProducts[division.id]]
+                  : [];
+              });
+
+              products = nextProducts;
+              saveProducts();
+
+              console.log(
+                '🔄 Realtime products synced:',
+                Object.values(products).flat().length
+              );
+
+              renderAll();
+
+              const productsOverlayEl =
+                document.getElementById('productsOverlay');
+
+              if (
+                productsOverlayEl?.classList.contains('open') &&
+                typeof renderProductManager === 'function'
+              ) {
+                renderProductManager();
+              }
+
+              finishFirstSnapshot();
+              return;
+            }
+
+            if (
+              !productMigrationInProgress &&
+              profile?.accessLevel === 'all' &&
+              Object.keys(products).length > 0
+            ) {
+              productMigrationInProgress = true;
+
+              console.log(
+                '⏳ Firestore products kosong. Memulai initial migration...'
+              );
+
+              try {
+                for (const division of DIVISIONS) {
+                  await seedProductGroupIfMissing(
+                    division.id,
+                    productListForDivision(division.id)
+                  );
+                }
+
+                console.log(
+                  '✅ Initial products migration completed:',
+                  Object.values(products).flat().length
+                );
+              } catch (migrationError) {
+                console.error(
+                  '❌ Initial products migration gagal:',
+                  migrationError
+                );
+              } finally {
+                productMigrationInProgress = false;
+                finishFirstSnapshot();
+              }
+
+              return;
+            }
+
+            console.log(
+              'Firestore products masih kosong. Menunggu Admin melakukan migration.'
+            );
+
+            renderAll();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error(
+              '❌ Pemrosesan realtime products gagal:',
+              error
+            );
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error(
+            '❌ Realtime product listener error:',
+            error
+          );
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return productsRealtimeReadyPromise;
+  }
+
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
   function saveMessages(){ localStorage.setItem('taskboard_messages_v1', JSON.stringify(messages)); }
   function saveNotifications(){ localStorage.setItem('taskboard_notifications_v1', JSON.stringify(notifications)); }
+
+  // Shared product state lives in Firestore; localStorage is only a cache.
   function saveProducts(){ localStorage.setItem('taskboard_products_v1', JSON.stringify(products)); }
 
-  function productListForDivision(divId){ return Array.isArray(products[divId]) ? products[divId] : []; }
+  function productListForDivision(divId){
+    return Array.isArray(products[divId]) ? products[divId] : [];
+  }
   function allProducts(){ return Object.values(products).flat(); }
   function productCount(divId, product){ return tasks.filter(t => t.division === divId && (t.product || '') === product).length; }
   function escapeHtml(value){
@@ -3970,104 +4119,44 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   let pendingImage = null;
   let pendingAttachments = [];
 
-  function populateAddForm(selectedDivision = null, selectedProduct = null) {
-  const deptSelect = document.getElementById('fDepartmenton');
-  const productSelect = document.getElementById('fProduct');
-  const assigneeSelect = document.getElementById('fAssignee');
-  const contributorsSelect = document.getElementById('fContributors');
+  function populateAddForm(selectedDivision=null, selectedProduct=null){
+    const deptSelect = document.getElementById('fDepartmenton');
+    const productSelect = document.getElementById('fProduct');
+    const editingTask = editingTaskId ? tasks.find(t => t.id === editingTaskId) : null;
+    const selectedAssigneeId = editingTask?.assignee || null;
+    const selectedContributorIds = new Set(editingTask?.contributors || []);
 
-  const editingTask = editingTaskId
-    ? tasks.find(t => t.id === editingTaskId)
-    : null;
+    const activeMembers = members.filter(m => m.active !== false);
+    const assigneeMembers = activeMembers.slice();
 
-  const selectedAssigneeId = editingTask?.assignee || null;
-  const selectedContributorIds = new Set(
-    editingTask?.contributors || []
-  );
-
-  // Member aktif tersedia untuk assignment baru.
-  const activeMembers = members.filter(m => m.active !== false);
-
-  // Saat edit task lama, PIC yang sudah inactive tetap ditampilkan.
-  const assigneeMembers = activeMembers.slice();
-
-  if (
-    selectedAssigneeId &&
-    !assigneeMembers.some(m => m.id === selectedAssigneeId)
-  ) {
-    const inactiveAssignee = members.find(
-      m => m.id === selectedAssigneeId
-    );
-
-    if (inactiveAssignee) {
-      assigneeMembers.unshift(inactiveAssignee);
+    // Keep the existing assignee visible when editing an old task that belongs
+    // to an inactive member, but never offer inactive members for a new assignment.
+    if (selectedAssigneeId && !assigneeMembers.some(m => m.id === selectedAssigneeId)) {
+      const inactiveAssignee = members.find(m => m.id === selectedAssigneeId);
+      if (inactiveAssignee) assigneeMembers.unshift(inactiveAssignee);
     }
-  }
 
-  // Contributor inactive yang sudah terpasang pada task lama
-  // juga tetap ditampilkan.
-  const contributorMembers = activeMembers.slice();
-
-  selectedContributorIds.forEach(id => {
-    if (!contributorMembers.some(m => m.id === id)) {
-      const inactiveContributor = members.find(m => m.id === id);
-
-      if (inactiveContributor) {
-        contributorMembers.push(inactiveContributor);
+    const contributorMembers = activeMembers.slice();
+    // Preserve already-selected inactive contributors while editing a task.
+    selectedContributorIds.forEach(id => {
+      if (!contributorMembers.some(m => m.id === id)) {
+        const inactiveContributor = members.find(m => m.id === id);
+        if (inactiveContributor) contributorMembers.push(inactiveContributor);
       }
-    }
-  });
+    });
 
-  deptSelect.innerHTML = DIVISIONS
-    .map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`)
-    .join('');
-
-  assigneeSelect.innerHTML = assigneeMembers
-    .map(m => `
-      <option value="${escapeHtml(m.id)}">
-        ${escapeHtml(m.name || m.id)}
-        ${m.active === false ? ' (Inactive)' : ''}
-      </option>
-    `)
-    .join('');
-
-  contributorsSelect.innerHTML = contributorMembers
-    .map(m => `
-      <option value="${escapeHtml(m.id)}">
-        ${escapeHtml(m.name || m.id)}
-        ${m.active === false ? ' (Inactive)' : ''}
-      </option>
-    `)
-    .join('');
-
-  if (selectedDivision) {
-    deptSelect.value = selectedDivision;
+    deptSelect.innerHTML = DIVISIONS.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    document.getElementById('fAssignee').innerHTML = assigneeMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}</option>`).join('');
+    document.getElementById('fContributors').innerHTML = contributorMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}</option>`).join('');
+    if (selectedDivision) deptSelect.value = selectedDivision;
+    const refreshProducts = () => {
+      const products = productListForDivision(deptSelect.value);
+      productSelect.innerHTML = `<option value="">No product / General</option>` + products.map(p => `<option value="${p}">${p}</option>`).join('');
+      if (selectedProduct && products.includes(selectedProduct)) productSelect.value = selectedProduct;
+    };
+    deptSelect.onchange = refreshProducts;
+    refreshProducts();
   }
-
-  const refreshProducts = () => {
-    const products = productListForDivision(deptSelect.value);
-
-    productSelect.innerHTML =
-      `<option value="">No product / General</option>` +
-      products
-        .map(p => `
-          <option value="${escapeHtml(p)}">
-            ${escapeHtml(p)}
-          </option>
-        `)
-        .join('');
-
-    if (
-      selectedProduct &&
-      products.includes(selectedProduct)
-    ) {
-      productSelect.value = selectedProduct;
-    }
-  };
-
-  deptSelect.onchange = refreshProducts;
-  refreshProducts();
-}
 
   function renderLinkEditor(links = []){
     const box = document.getElementById('linkEditorList');
@@ -4123,24 +4212,24 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   }
 
   document.getElementById('addBtn').addEventListener('click', () => {
-  if (!isAdmin()) return;
+    if (!isAdmin()) return;
 
-  resetForm();
+    resetForm();
 
-  populateAddForm(
-    activeDepartmenton !== 'all' ? activeDepartmenton : null,
-    activeProduct
-  );
+    populateAddForm(
+      activeDepartmenton !== 'all' ? activeDepartmenton : null,
+      activeProduct
+    );
 
-  if (
-    activeProduct &&
-    productListForDivision(activeDepartmenton).includes(activeProduct)
-  ) {
-    document.getElementById('fProduct').value = activeProduct;
-  }
+    if (
+      activeProduct &&
+      productListForDivision(activeDepartmenton).includes(activeProduct)
+    ) {
+      document.getElementById('fProduct').value = activeProduct;
+    }
 
-  overlay.classList.add('open');
-});
+    overlay.classList.add('open');
+  });
   document.getElementById('addLinkBtn').addEventListener('click', () => addLinkEditorRow());
 
   document.getElementById('editTaskBtn').addEventListener('click', () => {
@@ -4495,79 +4584,390 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
 
   // ---- product management ----
   const productsOverlay=document.getElementById('productsOverlay');
+
   function renderProductManager(){
     const box=document.getElementById('productManagerBody');
-    box.innerHTML=DIVISIONS.map(d=>{ const arr=productListForDivision(d.id); return `<section class="product-manager-section"><div class="product-manager-head"><strong>${escapeHtml(d.name)}</strong><button type="button" class="product-add-trigger" data-add-product="${d.id}">+ Add product</button></div><div class="product-manager-items" data-product-items="${d.id}">${arr.length?arr.map((p,i)=>`<div class="product-manager-row"><input type="text" value="${escapeHtml(p)}" data-product-dept="${d.id}" data-product-index="${i}"><button type="button" data-remove-product="${d.id}" data-product-index="${i}" title="Remove product" aria-label="Remove product">✕</button></div>`).join(''):'<div class="import-note product-none" style="padding:.6rem .75rem;">No products yet.</div>'}</div></section>`; }).join('');
 
-    box.querySelectorAll('[data-add-product]').forEach(btn=>btn.addEventListener('click',()=>{
-      const divId=btn.dataset.addProduct;
-      const items=box.querySelector(`[data-product-items="${divId}"]`);
-      if(!items) return;
-      items.querySelector('.product-none')?.remove();
-      if(items.querySelector('[data-new-product]')){
-        items.querySelector('[data-new-product] input')?.focus();
-        return;
-      }
-      const row=document.createElement('div');
-      row.className='product-manager-row product-new-row';
-      row.setAttribute('data-new-product','true');
-      row.innerHTML=`<input type="text" placeholder="Product name" autocomplete="off"><button type="button" class="product-save-new" title="Save product">✓</button><button type="button" class="product-cancel-new" title="Cancel">✕</button>`;
-      items.appendChild(row);
-      const input=row.querySelector('input');
-      const finish=(saveIt)=>{
-        const name=input.value.trim();
-        if(!saveIt){ row.remove(); if(!items.children.length) items.innerHTML='<div class="import-note product-none" style="padding:.6rem .75rem;">No products yet.</div>'; return; }
-        if(!name) { input.focus(); return; }
-        if(productListForDivision(divId).some(p=>p.toLowerCase()===name.toLowerCase())) { alert('That product already exists in this department.'); input.focus(); return; }
-        products[divId]=[...productListForDivision(divId),name];
-        saveProducts();
-        renderProductManager();
-        renderAll();
-      };
-      row.querySelector('.product-save-new').addEventListener('click',()=>finish(true));
-      row.querySelector('.product-cancel-new').addEventListener('click',()=>finish(false));
-      input.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();finish(true);} if(e.key==='Escape'){e.preventDefault();finish(false);} });
-      input.focus();
-    }));
+    box.innerHTML=DIVISIONS.map(d=>{
+      const arr=productListForDivision(d.id);
 
-    box.querySelectorAll('input[data-product-index]').forEach(inp=>inp.addEventListener('change',()=>{const divId=inp.dataset.productDept,idx=Number(inp.dataset.productIndex),name=inp.value.trim(); if(!name)return; const oldName=products[divId][idx]; if(name!==oldName&&allProducts().some(p=>p.toLowerCase()===name.toLowerCase())){alert('That product name is already used.'); inp.value=oldName; return;} products[divId][idx]=name; tasks.forEach(t=>{if(t.division===divId&&t.product===oldName){t.product=name;t.updatedAt=new Date().toISOString();}}); saveProducts(); save(); renderProductManager(); renderAll();}));
-    box.querySelectorAll('[data-remove-product]').forEach(btn=>btn.addEventListener('click',(e)=>{
-      e.preventDefault();
-      e.stopPropagation();
-      const divId = btn.dataset.removeProduct;
-      const idx = Number(btn.dataset.productIndex);
-      const oldName = products[divId]?.[idx];
-      if (!oldName) return;
-      const row = btn.closest('.product-manager-row');
-      if (!row) return;
-      const items = row.parentElement;
-      const taskCount = tasks.filter(t => t.division === divId && t.product === oldName).length;
-      const originalHtml = row.innerHTML;
-      row.classList.add('product-delete-confirm');
-      row.innerHTML = `<div class="product-delete-message"><strong>Remove “${escapeHtml(oldName)}”?</strong>${taskCount ? `<span>${taskCount} task${taskCount === 1 ? '' : 's'} will become General.</span>` : '<span>No tasks are using this product.</span>'}</div><div class="product-delete-actions"><button type="button" class="product-cancel-delete">Cancel</button><button type="button" class="product-confirm-delete">Remove</button></div>`;
-      const restore = () => { renderProductManager(); };
-      row.querySelector('.product-cancel-delete').addEventListener('click', restore);
-      row.querySelector('.product-confirm-delete').addEventListener('click',()=>{
-        const currentIndex = products[divId]?.indexOf(oldName);
-        if (currentIndex === -1 || currentIndex == null) return;
-        products[divId].splice(currentIndex,1);
-        tasks.forEach(t=>{
-          if(t.division===divId && t.product===oldName){
-            t.product='';
-            t.updatedAt=new Date().toISOString();
+      return `
+        <section class="product-manager-section">
+          <div class="product-manager-head">
+            <strong>${escapeHtml(d.name)}</strong>
+            <button
+              type="button"
+              class="product-add-trigger"
+              data-add-product="${d.id}"
+            >
+              + Add product
+            </button>
+          </div>
+
+          <div
+            class="product-manager-items"
+            data-product-items="${d.id}"
+          >
+            ${
+              arr.length
+                ? arr.map((p,i)=>`
+                    <div class="product-manager-row">
+                      <input
+                        type="text"
+                        value="${escapeHtml(p)}"
+                        data-product-dept="${d.id}"
+                        data-product-index="${i}"
+                      >
+                      <button
+                        type="button"
+                        data-remove-product="${d.id}"
+                        data-product-index="${i}"
+                        title="Remove product"
+                        aria-label="Remove product"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  `).join('')
+                : '<div class="import-note product-none" style="padding:.6rem .75rem;">No products yet.</div>'
+            }
+          </div>
+        </section>
+      `;
+    }).join('');
+
+    // ADD PRODUCT
+    box.querySelectorAll('[data-add-product]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const divId=btn.dataset.addProduct;
+        const items=box.querySelector(
+          `[data-product-items="${divId}"]`
+        );
+
+        if(!items) return;
+
+        items.querySelector('.product-none')?.remove();
+
+        if(items.querySelector('[data-new-product]')){
+          items.querySelector('[data-new-product] input')?.focus();
+          return;
+        }
+
+        const row=document.createElement('div');
+        row.className='product-manager-row product-new-row';
+        row.setAttribute('data-new-product','true');
+
+        row.innerHTML=`
+          <input
+            type="text"
+            placeholder="Product name"
+            autocomplete="off"
+          >
+          <button
+            type="button"
+            class="product-save-new"
+            title="Save product"
+          >
+            ✓
+          </button>
+          <button
+            type="button"
+            class="product-cancel-new"
+            title="Cancel"
+          >
+            ✕
+          </button>
+        `;
+
+        items.appendChild(row);
+
+        const input=row.querySelector('input');
+
+        const finish=async saveIt=>{
+          const name=input.value.trim();
+
+          if(!saveIt){
+            row.remove();
+
+            if(!items.children.length){
+              items.innerHTML=
+                '<div class="import-note product-none" style="padding:.6rem .75rem;">No products yet.</div>';
+            }
+
+            return;
+          }
+
+          if(!name){
+            input.focus();
+            return;
+          }
+
+          if(
+            allProducts().some(
+              p => p.toLowerCase() === name.toLowerCase()
+            )
+          ){
+            alert('That product name is already used.');
+            input.focus();
+            return;
+          }
+
+          const previousItems =
+            productListForDivision(divId).slice();
+
+          const nextItems = [...previousItems, name];
+
+          try {
+            await window.saveProductGroup(divId, nextItems);
+
+            products[divId] = nextItems;
+            saveProducts();
+
+            renderProductManager();
+            renderAll();
+          } catch(error) {
+            console.error('❌ Gagal menyimpan product:', error);
+            alert(
+              'Product gagal disimpan ke Firebase.\n\n' +
+              (error?.message || 'Unknown error')
+            );
+          }
+        };
+
+        row.querySelector('.product-save-new')
+          .addEventListener('click',()=>finish(true));
+
+        row.querySelector('.product-cancel-new')
+          .addEventListener('click',()=>finish(false));
+
+        input.addEventListener('keydown',e=>{
+          if(e.key==='Enter'){
+            e.preventDefault();
+            finish(true);
+          }
+
+          if(e.key==='Escape'){
+            e.preventDefault();
+            finish(false);
           }
         });
-        saveProducts();
-        save();
-        if (activeProduct === oldName && activeDepartmenton === divId) activeProduct = null;
-        renderProductManager();
-        renderAll();
+
+        input.focus();
       });
-    }));
+    });
+
+    // RENAME PRODUCT
+    box.querySelectorAll('input[data-product-index]').forEach(inp=>{
+      inp.addEventListener('change',async()=>{
+        const divId=inp.dataset.productDept;
+        const idx=Number(inp.dataset.productIndex);
+        const name=inp.value.trim();
+        const oldName=products[divId]?.[idx];
+
+        if(!name || !oldName) return;
+        if(name === oldName) return;
+
+        if(
+          allProducts().some(
+            p => p.toLowerCase() === name.toLowerCase()
+              && p !== oldName
+          )
+        ){
+          alert('That product name is already used.');
+          inp.value=oldName;
+          return;
+        }
+
+        const nextItems =
+          productListForDivision(divId).slice();
+
+        nextItems[idx]=name;
+
+        const affectedTasks=tasks
+          .filter(
+            t => t.division===divId &&
+                 t.product===oldName
+          )
+          .map(t=>({
+            ...t,
+            product:name,
+            updatedAt:new Date().toISOString()
+          }));
+
+        try {
+          await window.saveProductGroupAndTasks(
+            divId,
+            nextItems,
+            affectedTasks
+          );
+
+          products[divId]=nextItems;
+          saveProducts();
+
+          affectedTasks.forEach(updatedTask=>{
+            const localTask=tasks.find(
+              t => t.id === updatedTask.id
+            );
+
+            if(localTask){
+              Object.assign(localTask,updatedTask);
+            }
+          });
+
+          save();
+          renderProductManager();
+          renderAll();
+        } catch(error) {
+          console.error('❌ Gagal rename product:', error);
+
+          alert(
+            'Product gagal diubah.\n\n' +
+            (error?.message || 'Unknown error')
+          );
+
+          renderProductManager();
+        }
+      });
+    });
+
+    // REMOVE PRODUCT
+    box.querySelectorAll('[data-remove-product]').forEach(btn=>{
+      btn.addEventListener('click',e=>{
+        e.preventDefault();
+        e.stopPropagation();
+
+        const divId=btn.dataset.removeProduct;
+        const idx=Number(btn.dataset.productIndex);
+        const oldName=products[divId]?.[idx];
+
+        if(!oldName) return;
+
+        const row=btn.closest('.product-manager-row');
+        if(!row) return;
+
+        const taskCount=tasks.filter(
+          t => t.division===divId && t.product===oldName
+        ).length;
+
+        row.classList.add('product-delete-confirm');
+
+        row.innerHTML=`
+          <div class="product-delete-message">
+            <strong>Remove “${escapeHtml(oldName)}”?</strong>
+            ${
+              taskCount
+                ? `<span>${taskCount} task${taskCount===1?'':'s'} will become General.</span>`
+                : '<span>No tasks are using this product.</span>'
+            }
+          </div>
+
+          <div class="product-delete-actions">
+            <button type="button" class="product-cancel-delete">
+              Cancel
+            </button>
+
+            <button type="button" class="product-confirm-delete">
+              Remove
+            </button>
+          </div>
+        `;
+
+        row.querySelector('.product-cancel-delete')
+          .addEventListener('click',()=>{
+            renderProductManager();
+          });
+
+        row.querySelector('.product-confirm-delete')
+          .addEventListener('click',async()=>{
+            const currentIndex=
+              products[divId]?.indexOf(oldName);
+
+            if(
+              currentIndex===-1 ||
+              currentIndex==null
+            ){
+              return;
+            }
+
+            const nextItems=
+              productListForDivision(divId)
+                .filter((_,i)=>i!==currentIndex);
+
+            const affectedTasks=tasks
+              .filter(
+                t => t.division===divId &&
+                     t.product===oldName
+              )
+              .map(t=>({
+                ...t,
+                product:'',
+                updatedAt:new Date().toISOString()
+              }));
+
+            try {
+              await window.saveProductGroupAndTasks(
+                divId,
+                nextItems,
+                affectedTasks
+              );
+
+              products[divId]=nextItems;
+              saveProducts();
+
+              affectedTasks.forEach(updatedTask=>{
+                const localTask=tasks.find(
+                  t => t.id===updatedTask.id
+                );
+
+                if(localTask){
+                  Object.assign(localTask,updatedTask);
+                }
+              });
+
+              save();
+
+              if(
+                activeProduct===oldName &&
+                activeDepartmenton===divId
+              ){
+                activeProduct=null;
+              }
+
+              renderProductManager();
+              renderAll();
+            } catch(error) {
+              console.error('❌ Gagal remove product:',error);
+
+              alert(
+                'Product gagal dihapus.\n\n' +
+                (error?.message || 'Unknown error')
+              );
+
+              renderProductManager();
+            }
+          });
+      });
+    });
   }
-  document.getElementById('productsBtn').addEventListener('click',()=>{if(!isAdmin())return;renderProductManager();productsOverlay.classList.add('open');});
-  document.getElementById('closeProductsBtn').addEventListener('click',()=>{productsOverlay.classList.remove('open');renderAll();});
-  productsOverlay.addEventListener('click',e=>{if(e.target===productsOverlay)productsOverlay.classList.remove('open');});
+
+  document.getElementById('productsBtn')
+    .addEventListener('click',()=>{
+      if(!isAdmin()) return;
+      renderProductManager();
+      productsOverlay.classList.add('open');
+    });
+
+  document.getElementById('closeProductsBtn')
+    .addEventListener('click',()=>{
+      productsOverlay.classList.remove('open');
+      renderAll();
+    });
+
+  productsOverlay.addEventListener('click',e=>{
+    if(e.target===productsOverlay){
+      productsOverlay.classList.remove('open');
+    }
+  });
 
   // ---- members modal ----
   const membersOverlay = document.getElementById('membersOverlay');
@@ -4856,8 +5256,6 @@ completeProfileButton?.addEventListener('click', async () => {
 
     console.log('Profile berhasil dibuat:', profile);
 
-console.log('Profile berhasil dibuat:', profile);
-
 window.syncLegacyWorkspaceIdentity(
   memberId,
   profile.accessLevel || 'standard',
@@ -4869,20 +5267,7 @@ window.syncLegacyWorkspaceIdentity(
 );
 
 await startMembersRealtime(profile, user);
-await startTasksRealtime(profile, user);
-enterWorkspace();
-
-window.syncLegacyWorkspaceIdentity(
-  memberId,
-  profile.accessLevel || 'standard',
-  {
-    ...profile,
-    email: profile.email || user.email || '',
-    authUid: user.uid
-  }
-);
-
-await startMembersRealtime(profile, user);
+startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
 enterWorkspace();
 
@@ -5336,6 +5721,7 @@ onAuthStateChanged(auth, async (user) => {
     });
 
     await startMembersRealtime(profile, user);
+    startProductsRealtime(profile, user);
     await startTasksRealtime(profile, user);
 
   } catch (error) {
@@ -5379,6 +5765,7 @@ window.syncLegacyWorkspaceIdentity(
 );
 
 await startMembersRealtime(profile, user);
+startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
 enterWorkspace();
 

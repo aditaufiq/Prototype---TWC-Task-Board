@@ -127,6 +127,133 @@ async function deleteMember(memberId) {
   await deleteDoc(memberRef);
 }
 
+function subscribeToProducts(onChange, onError) {
+  const productsRef = collection(db, "products");
+
+  return onSnapshot(
+    productsRef,
+    snapshot => {
+      const products = {};
+
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data() || {};
+
+        products[String(docSnap.id)] = Array.isArray(data.items)
+          ? data.items.map(item => String(item)).filter(Boolean)
+          : [];
+      });
+
+      onChange(products, snapshot);
+    },
+    error => {
+      console.error("Realtime products listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+async function saveProductGroup(divisionId, items) {
+  const id = String(divisionId || '').trim();
+
+  if (!id) {
+    throw new Error("Division ID product tidak boleh kosong.");
+  }
+
+  const normalizedItems = Array.isArray(items)
+    ? items.map(item => String(item).trim()).filter(Boolean)
+    : [];
+
+  const productRef = doc(db, "products", id);
+
+  await setDoc(
+    productRef,
+    {
+      divisionId: id,
+      items: normalizedItems,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
+
+  return normalizedItems;
+}
+
+async function seedProductGroupIfMissing(divisionId, items) {
+  const id = String(divisionId || '').trim();
+
+  if (!id) {
+    throw new Error("Division ID product tidak boleh kosong.");
+  }
+
+  const normalizedItems = Array.isArray(items)
+    ? items.map(item => String(item).trim()).filter(Boolean)
+    : [];
+
+  const productRef = doc(db, "products", id);
+
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(productRef);
+
+    if (snapshot.exists()) {
+      return;
+    }
+
+    transaction.set(productRef, {
+      divisionId: id,
+      items: normalizedItems,
+      updatedAt: new Date().toISOString()
+    });
+  });
+
+  return normalizedItems;
+}
+
+async function saveProductGroupAndTasks(divisionId, items, tasks) {
+  const id = String(divisionId || '').trim();
+
+  if (!id) {
+    throw new Error("Division ID product tidak boleh kosong.");
+  }
+
+  const normalizedItems = Array.isArray(items)
+    ? items.map(item => String(item).trim()).filter(Boolean)
+    : [];
+
+  const batch = writeBatch(db);
+  const productRef = doc(db, "products", id);
+
+  batch.set(
+    productRef,
+    {
+      divisionId: id,
+      items: normalizedItems,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
+
+  if (Array.isArray(tasks)) {
+    for (const task of tasks) {
+      if (!task?.id) continue;
+
+      const taskRef = doc(db, "tasks", String(task.id));
+
+      batch.update(taskRef, {
+        ...task,
+        updatedAt: task.updatedAt || new Date().toISOString()
+      });
+    }
+  }
+
+  await batch.commit();
+
+  return {
+    divisionId: id,
+    items: normalizedItems,
+    tasks: Array.isArray(tasks) ? tasks : []
+  };
+}
+
 async function createUserProfile(uid, profileData) {
   const userRef = doc(db, "users", uid);
 
@@ -265,6 +392,10 @@ window.getMember = getMember;
 window.subscribeToMembers = subscribeToMembers;
 window.saveMember = saveMember;
 window.deleteMember = deleteMember;
+window.subscribeToProducts = subscribeToProducts;
+window.saveProductGroup = saveProductGroup;
+window.saveProductGroupAndTasks = saveProductGroupAndTasks;
+window.seedProductGroupIfMissing = seedProductGroupIfMissing;
 window.createUserProfile = createUserProfile;
 window.updateUserProfile = updateUserProfile;
 window.addTask = addTask;
@@ -289,6 +420,10 @@ export {
   subscribeToMembers,
   saveMember,
   deleteMember,
+  subscribeToProducts,
+  saveProductGroup,
+  saveProductGroupAndTasks,
+  seedProductGroupIfMissing,
   createUserProfile,
   getTasks,
   subscribeToTasks,
