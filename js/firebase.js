@@ -70,6 +70,63 @@ async function getUserProfile(uid) {
   return snapshot.data();
 }
 
+async function getMember(memberId) {
+  const memberRef = doc(db, "members", String(memberId));
+  const snapshot = await getDoc(memberRef);
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  return {
+    ...snapshot.data(),
+    id: String(snapshot.id)
+  };
+}
+
+function subscribeToMembers(onChange, onError) {
+  const membersRef = collection(db, "members");
+
+  return onSnapshot(
+    membersRef,
+    snapshot => {
+      const members = snapshot.docs.map(docSnap => ({
+        ...docSnap.data(),
+        id: String(docSnap.id)
+      }));
+
+      onChange(members, snapshot);
+    },
+    error => {
+      console.error("Realtime members listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+async function saveMember(member) {
+  const memberId = String(member?.id || '').trim();
+
+  if (!memberId) {
+    throw new Error("Member ID tidak boleh kosong.");
+  }
+
+  const memberRef = doc(db, "members", memberId);
+
+  await setDoc(memberRef, {
+    ...member,
+    id: memberId,
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+
+  return getMember(memberId);
+}
+
+async function deleteMember(memberId) {
+  const memberRef = doc(db, "members", String(memberId));
+  await deleteDoc(memberRef);
+}
+
 async function createUserProfile(uid, profileData) {
   const userRef = doc(db, "users", uid);
 
@@ -204,6 +261,10 @@ async function deleteTask(taskId) {
 
 window.loginWithGoogle = loginWithGoogle;
 window.getUserProfile = getUserProfile;
+window.getMember = getMember;
+window.subscribeToMembers = subscribeToMembers;
+window.saveMember = saveMember;
+window.deleteMember = deleteMember;
 window.createUserProfile = createUserProfile;
 window.updateUserProfile = updateUserProfile;
 window.addTask = addTask;
@@ -224,6 +285,10 @@ export {
   onAuthStateChanged,
   loginWithGoogle,
   getUserProfile,
+  getMember,
+  subscribeToMembers,
+  saveMember,
+  deleteMember,
   createUserProfile,
   getTasks,
   subscribeToTasks,

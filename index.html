@@ -2226,6 +2226,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   auth,
   onAuthStateChanged,
   getUserProfile,
+  getMember,
+  subscribeToMembers,
+  saveMember,
+  deleteMember,
   getTasks,
   subscribeToTasks,
   addTask,
@@ -2345,6 +2349,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         'member';
 
       existingMember.active = true;
+      if (profile?.authUid) existingMember.authUid = profile.authUid;
 
     } else {
       members.push({
@@ -2353,7 +2358,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         email: profile?.email || '',
         color: '#0F766E',
         role: profile?.role || 'member',
-        active: true
+        active: true,
+        ...(profile?.authUid ? { authUid: profile.authUid } : {})
       });
     }
   }
@@ -2378,6 +2384,10 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let tasksRealtimeUserUid = null;
   let tasksRealtimeReadyPromise = Promise.resolve();
   let taskMigrationInProgress = false;
+  let unsubscribeMembersRealtime = null;
+  let membersRealtimeUserUid = null;
+  let membersRealtimeReadyPromise = Promise.resolve();
+  let memberMigrationInProgress = false;
 
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
 
@@ -2482,10 +2492,166 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
   function save(){ localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks)); }
   function saveMembers(){ localStorage.setItem('taskboard_members_v2', JSON.stringify(members)); }
+
+  async function ensureCurrentUserMember(profile, user){
+    if (!profile || !user?.uid) return;
+
+    const memberId = makeFirebaseMemberId(profile, user);
+    if (!memberId) return;
+
+    // Keep legacy identity available while the members collection is loading.
+    const cachedMember = members.find(m => m.id === memberId);
+    if (!cachedMember) {
+      members.push({
+        id: memberId,
+        name: profile.username || user.displayName || 'User',
+        email: profile.email || user.email || '',
+        color: '#0F766E',
+        role: profile.role || 'member',
+        active: true,
+        authUid: user.uid
+      });
+      saveMembers();
+      renderAll();
+    }
+
+    try {
+      const existing = await getMember(memberId);
+
+      if (!existing) {
+        await saveMember({
+          id: memberId,
+          name: profile.username || user.displayName || 'User',
+          email: profile.email || user.email || '',
+          color: cachedMember?.color || '#0F766E',
+          role: 'member',
+          active: true,
+          authUid: user.uid
+        });
+        console.log('✅ Current user member dibuat di Firestore:', memberId);
+      }
+    } catch (error) {
+      console.error('❌ Gagal memastikan current user member:', error);
+    }
+  }
+
+  async function startMembersRealtime(profile, user){
+    if (!user?.uid) return;
+
+    if (membersRealtimeUserUid === user.uid && unsubscribeMembersRealtime) {
+      return membersRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeMembersRealtime === 'function') {
+      unsubscribeMembersRealtime();
+      unsubscribeMembersRealtime = null;
+    }
+
+    membersRealtimeUserUid = user.uid;
+    memberMigrationInProgress = false;
+
+    membersRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+      let currentUserMemberEnsured = false;
+
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      const ensureCurrentMemberIfMissing = async (remoteMembers) => {
+        if (currentUserMemberEnsured) return;
+
+        const memberId = makeFirebaseMemberId(profile, user);
+        if (!memberId) return;
+
+        const existsInRemote = remoteMembers.some(member => member.id === memberId);
+        if (existsInRemote) {
+          currentUserMemberEnsured = true;
+          return;
+        }
+
+        try {
+          await ensureCurrentUserMember(profile, user);
+          currentUserMemberEnsured = true;
+        } catch (error) {
+          console.error('❌ Gagal memastikan current user member:', error);
+        }
+      };
+
+      unsubscribeMembersRealtime = subscribeToMembers(
+        async (remoteMembers) => {
+          try {
+            if (remoteMembers.length > 0) {
+              members = remoteMembers
+                .map(m => ({
+                  ...m,
+                  email: m.email || `${m.id}@twc.local`,
+                  role: m.role || 'member',
+                  active: m.active !== false
+                }))
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+              saveMembers();
+              console.log('🔄 Realtime members synced:', members.length);
+              renderAll();
+
+              await ensureCurrentMemberIfMissing(remoteMembers);
+
+              if (!memberMigrationInProgress) finishFirstSnapshot();
+              return;
+            }
+
+            // Transitional migration: only Admin may seed an empty Firestore
+            // collection from the current local member list.
+            if (!memberMigrationInProgress && profile?.accessLevel === 'all' && members.length > 0) {
+              memberMigrationInProgress = true;
+              console.log('⏳ Firestore members kosong. Memulai initial migration...');
+
+              try {
+                for (const member of [...members]) {
+                  await saveMember(member);
+                }
+                console.log('✅ Initial members migration completed:', members.length);
+              } catch (migrationError) {
+                console.error('❌ Initial members migration gagal:', migrationError);
+              } finally {
+                memberMigrationInProgress = false;
+                saveMembers();
+                renderAll();
+                finishFirstSnapshot();
+              }
+              return;
+            }
+
+            // If no roster exists yet, let the signed-in user create only their
+            // own safe member record. The resulting snapshot will populate the UI.
+            console.log('Firestore members masih kosong. Membuat/menjaga member user yang sedang login.');
+            await ensureCurrentMemberIfMissing([]);
+            renderAll();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error('❌ Pemrosesan realtime members gagal:', error);
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error('❌ Realtime member listener error:', error);
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return membersRealtimeReadyPromise;
+  }
+
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
   function saveMessages(){ localStorage.setItem('taskboard_messages_v1', JSON.stringify(messages)); }
   function saveNotifications(){ localStorage.setItem('taskboard_notifications_v1', JSON.stringify(notifications)); }
   function saveProducts(){ localStorage.setItem('taskboard_products_v1', JSON.stringify(products)); }
+
   function productListForDivision(divId){ return Array.isArray(products[divId]) ? products[divId] : []; }
   function allProducts(){ return Object.values(products).flat(); }
   function productCount(divId, product){ return tasks.filter(t => t.division === divId && (t.product || '') === product).length; }
@@ -4314,16 +4480,96 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         <label class="active-toggle"><input type="checkbox" data-field="active" ${(m.active!==false)?'checked':''}><span>${m.active!==false?'Active':'Inactive'}</span></label>
         <button class="remove-member" data-remove="${i}" title="Remove member">✕</button>
       </div>`).join('');
-    box.querySelectorAll('input[data-field="name"]').forEach(inp => inp.addEventListener('input', e => { const idx = parseInt(e.target.closest('.member-row').dataset.idx); members[idx].name = e.target.value; saveMembers(); renderRoleSelect(); }));
-    box.querySelectorAll('input[data-field="email"]').forEach(inp => inp.addEventListener('input', e => { const idx = parseInt(e.target.closest('.member-row').dataset.idx); members[idx].email = e.target.value; saveMembers(); }));
-    box.querySelectorAll('input[data-field="color"]').forEach(inp => inp.addEventListener('input', e => { const idx = parseInt(e.target.closest('.member-row').dataset.idx); members[idx].color = e.target.value; saveMembers(); renderBoard(); }));
-    box.querySelectorAll('select[data-field="role"]').forEach(sel => sel.addEventListener('change', e => { const idx = parseInt(e.target.closest('.member-row').dataset.idx); members[idx].role = e.target.value; saveMembers(); renderRoleSelect(); }));
-    box.querySelectorAll('input[data-field="active"]').forEach(inp => inp.addEventListener('change', e => { const idx = parseInt(e.target.closest('.member-row').dataset.idx); members[idx].active = e.target.checked; saveMembers(); renderMemberRows(); renderRoleSelect(); }));
+    box.querySelectorAll('input[data-field="name"]').forEach(inp => inp.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
+      const member = members[idx];
+      if (!member) return;
+      member.name = e.target.value.trim() || 'Unnamed Member';
+      saveMembers();
+      renderRoleSelect();
+      try {
+        await saveMember(member);
+      } catch (error) {
+        console.error('❌ Gagal menyimpan nama member:', error);
+        alert('Nama member gagal disimpan.');
+      }
+    }));
+
+    box.querySelectorAll('input[data-field="email"]').forEach(inp => inp.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
+      const member = members[idx];
+      if (!member) return;
+      member.email = e.target.value.trim();
+      saveMembers();
+      try {
+        await saveMember(member);
+      } catch (error) {
+        console.error('❌ Gagal menyimpan email member:', error);
+        alert('Email member gagal disimpan.');
+      }
+    }));
+
+    box.querySelectorAll('input[data-field="color"]').forEach(inp => inp.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
+      const member = members[idx];
+      if (!member) return;
+      member.color = e.target.value;
+      saveMembers();
+      renderBoard();
+      try {
+        await saveMember(member);
+      } catch (error) {
+        console.error('❌ Gagal menyimpan warna member:', error);
+        alert('Warna member gagal disimpan.');
+      }
+    }));
+
+    box.querySelectorAll('select[data-field="role"]').forEach(sel => sel.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
+      const member = members[idx];
+      if (!member) return;
+      member.role = e.target.value;
+      saveMembers();
+      renderRoleSelect();
+      try {
+        await saveMember(member);
+      } catch (error) {
+        console.error('❌ Gagal menyimpan role member:', error);
+        alert('Role member gagal disimpan.');
+      }
+    }));
+
+    box.querySelectorAll('input[data-field="active"]').forEach(inp => inp.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
+      const member = members[idx];
+      if (!member) return;
+      member.active = e.target.checked;
+      saveMembers();
+      renderMemberRows();
+      renderRoleSelect();
+      try {
+        await saveMember(member);
+      } catch (error) {
+        console.error('❌ Gagal mengubah status active member:', error);
+        alert('Status member gagal disimpan.');
+      }
+    }));
     box.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', e => {
       const idx = parseInt(e.target.dataset.remove);
       const m = members[idx];
       if (!m) return;
-      openConfirm({ title:'Remove member?', message:`“${m.name}” will be removed from the team member list.`, confirmText:'Remove member', danger:true, onConfirm:()=>{ members.splice(idx,1); saveMembers(); renderMemberRows(); renderAll(); } });
+      openConfirm({ title:'Remove member?', message:`“${m.name}” will be removed from the team member list.`, confirmText:'Remove member', danger:true, onConfirm: async () => {
+        try {
+          await deleteMember(m.id);
+          members.splice(idx,1);
+          saveMembers();
+          renderMemberRows();
+          renderAll();
+        } catch (error) {
+          console.error('❌ Gagal menghapus member:', error);
+          alert('Member gagal dihapus.');
+        }
+      } });
     }));
   }
 document.getElementById('membersBtn').addEventListener('click', () => {
@@ -4335,11 +4581,19 @@ document.getElementById('membersBtn').addEventListener('click', () => {
     renderRoleSelect();
     renderBoard();
   });
-  document.getElementById('addMemberBtn').addEventListener('click', () => {
+  document.getElementById('addMemberBtn').addEventListener('click', async () => {
     const newId = 'm' + Date.now();
-    members.push({ id: newId, name: 'New Member', email: '', color: '#999999', role:'member', active:true });
-    saveMembers();
-    renderMemberRows();
+    const member = { id: newId, name: 'New Member', email: '', color: '#999999', role:'member', active:true };
+
+    try {
+      await saveMember(member);
+      members.push(member);
+      saveMembers();
+      renderMemberRows();
+    } catch (error) {
+      console.error('❌ Gagal menambah member:', error);
+      alert('Member gagal ditambahkan.');
+    }
   });
   membersOverlay.addEventListener('click', (e) => { if (e.target === membersOverlay) membersOverlay.classList.remove('open'); });
 
@@ -4477,11 +4731,14 @@ completeProfileButton?.addEventListener('click', async () => {
     const selectedPhoto =
       photoPreview?.querySelector('img')?.src || null;
 
+    const memberId = makeFirebaseMemberId({ username }, user);
+
     const profile = await window.createUserProfile(
       user.uid,
       {
         username: username,
         email: user.email || '',
+        memberId,
         role: 'member',
         accessLevel: 'standard',
         department: null,
@@ -4505,10 +4762,13 @@ window.syncLegacyWorkspaceIdentity(
   profile.accessLevel || 'standard',
   {
     ...profile,
-    email: profile.email || user.email || ''
+    email: profile.email || user.email || '',
+    authUid: user.uid
   }
 );
 
+await startMembersRealtime(profile, user);
+await startTasksRealtime(profile, user);
 enterWorkspace();
 
   }catch(error){
@@ -4884,6 +5144,11 @@ document
       if(currentMember){
         currentMember.name = username;
         saveMembers();
+        try {
+          await saveMember(currentMember);
+        } catch (memberError) {
+          console.error('❌ Gagal sinkronisasi nama member ke Firestore:', memberError);
+        }
       }
 
       renderRoleSelect();
@@ -4920,7 +5185,7 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   try {
-    const profile = await getUserProfile(user.uid);
+    let profile = await getUserProfile(user.uid);
 
     if (!profile) {
       showProfileSetup(user);
@@ -4929,12 +5194,22 @@ onAuthStateChanged(auth, async (user) => {
 
     const memberId = makeFirebaseMemberId(profile, user);
 
+    if (!profile.memberId && memberId) {
+      try {
+        profile = await window.updateUserProfile(user.uid, { memberId });
+        console.log('✅ memberId profile dilengkapi:', memberId);
+      } catch (memberIdError) {
+        console.error('❌ Gagal menyimpan memberId profile:', memberIdError);
+      }
+    }
+
     window.syncLegacyWorkspaceIdentity(
       memberId,
       profile.accessLevel || 'standard',
       {
         ...profile,
-        email: profile.email || user.email || ''
+        email: profile.email || user.email || '',
+        authUid: user.uid
       }
     );
 
@@ -4945,6 +5220,7 @@ onAuthStateChanged(auth, async (user) => {
       accessLevel: profile.accessLevel
     });
 
+    await startMembersRealtime(profile, user);
     await startTasksRealtime(profile, user);
 
   } catch (error) {
@@ -4962,7 +5238,7 @@ function showWelcome(){
 
     if (!user) return;
 
-    const profile = await window.getUserProfile(user.uid);
+    let profile = await window.getUserProfile(user.uid);
 
 console.log('Firebase user:', user);
 console.log('Firestore profile:', profile);
@@ -4972,6 +5248,22 @@ if (!profile) {
   return;
 }
 
+const memberId = makeFirebaseMemberId(profile, user);
+if (!profile.memberId && memberId) {
+  try {
+    profile = await window.updateUserProfile(user.uid, { memberId });
+  } catch (memberIdError) {
+    console.error('❌ Gagal menyimpan memberId profile:', memberIdError);
+  }
+}
+
+window.syncLegacyWorkspaceIdentity(
+  memberId,
+  profile.accessLevel || 'standard',
+  { ...profile, email: profile.email || user.email || '', authUid: user.uid }
+);
+
+await startMembersRealtime(profile, user);
 await startTasksRealtime(profile, user);
 enterWorkspace();
 
