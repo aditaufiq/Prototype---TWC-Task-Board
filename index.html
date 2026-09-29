@@ -2234,6 +2234,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   saveProductGroup,
   saveProductGroupAndTasks,
   seedProductGroupIfMissing,
+  subscribeToActivities,
+  addActivity,
   getTasks,
   subscribeToTasks,
   addTask,
@@ -2400,6 +2402,10 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let productsRealtimeUserUid = null;
   let productsRealtimeReadyPromise = Promise.resolve();
   let productMigrationInProgress = false;
+  let unsubscribeActivitiesRealtime = null;
+  let activitiesRealtimeUserUid = null;
+  let activitiesRealtimeReadyPromise = Promise.resolve();
+  let activityMigrationInProgress = false;
 
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
 
@@ -2798,6 +2804,113 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return productsRealtimeReadyPromise;
   }
 
+  async function startActivitiesRealtime(profile, user){
+    if (!user?.uid) return;
+
+    if (activitiesRealtimeUserUid === user.uid && unsubscribeActivitiesRealtime) {
+      return activitiesRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeActivitiesRealtime === 'function') {
+      unsubscribeActivitiesRealtime();
+      unsubscribeActivitiesRealtime = null;
+    }
+
+    activitiesRealtimeUserUid = user.uid;
+    activityMigrationInProgress = false;
+
+    activitiesRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      unsubscribeActivitiesRealtime = subscribeToActivities(
+        async remoteActivities => {
+          try {
+            if (remoteActivities.length > 0) {
+              activities = remoteActivities
+                .map(activity => ({
+                  ...activity,
+                  id: String(activity.id),
+                  actorId: activity.actorId || activity.actorUid || 'unknown',
+                  actorName: activity.actorName || 'Unknown',
+                  action: activity.action || 'update',
+                  detail: activity.detail || '',
+                  at: activity.at || new Date().toISOString()
+                }))
+                .sort((a, b) => new Date(b.at) - new Date(a.at));
+
+              saveActivities();
+              console.log('🔄 Realtime activities synced:', activities.length);
+              renderAll();
+              finishFirstSnapshot();
+              return;
+            }
+
+            // Only an all-access user may migrate the old local activity cache.
+            // Legacy records keep their original actorId/actorName and are marked
+            // explicitly instead of inventing a historical Firebase UID.
+            if (
+              !activityMigrationInProgress &&
+              profile?.accessLevel === 'all' &&
+              activities.length > 0
+            ) {
+              activityMigrationInProgress = true;
+              console.log('⏳ Firestore activities kosong. Memulai initial migration...');
+
+              try {
+                const legacyActivities = activities.map(activity => ({
+                  ...activity,
+                  id: undefined,
+                  legacy: true,
+                  migratedFromLocal: true,
+                  actorUid: null,
+                  migratedByUid: user.uid,
+                  at: activity.at || new Date().toISOString()
+                }));
+
+                for (const activity of legacyActivities) {
+                  await addActivity(activity);
+                }
+
+                console.log('✅ Initial activities migration completed:', legacyActivities.length);
+              } catch (migrationError) {
+                console.error('❌ Initial activities migration gagal:', migrationError);
+              } finally {
+                activityMigrationInProgress = false;
+                finishFirstSnapshot();
+              }
+
+              return;
+            }
+
+            activities = [];
+            saveActivities();
+            console.log('🔄 Realtime activities synced: 0');
+            renderAll();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error('❌ Pemrosesan realtime activities gagal:', error);
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error('❌ Realtime activity listener error:', error);
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return activitiesRealtimeReadyPromise;
+  }
+
+  // Firestore is the source of truth for shared activity history.
+  // localStorage is retained only as a cache/fallback while the listener connects.
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
   function saveMessages(){ localStorage.setItem('taskboard_messages_v1', JSON.stringify(messages)); }
   function saveNotifications(){ localStorage.setItem('taskboard_notifications_v1', JSON.stringify(notifications)); }
@@ -2979,9 +3092,26 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   }
   function actorName(){ return isAdmin() ? 'Admin' : memberOf(currentRole).name; }
   function logActivity(taskId, action, detail){
-    activities.push({ id: Date.now() + Math.random(), taskId, actorId: currentRole, actorName: actorName(), action, detail, at: new Date().toISOString() });
-    if (activities.length > 2000) activities = activities.slice(-2000);
+    const activity = {
+      taskId: taskId == null ? null : String(taskId),
+      entityType: 'task',
+      entityId: taskId == null ? null : String(taskId),
+      actorId: currentRole,
+      actorName: actorName(),
+      actorUid: currentUserProfile?.authUid || null,
+      action,
+      detail,
+      at: new Date().toISOString(),
+      legacy: false
+    };
+
+    activities = [activity, ...activities].slice(0, 200);
     saveActivities();
+    renderRecentActivity();
+
+    addActivity(activity).catch(error => {
+      console.error('❌ Activity gagal disimpan ke Firestore:', error);
+    });
   }
   function isOverdue(task){
     if (!task.due || task.status === 'done') return false;
@@ -3486,6 +3616,68 @@ function formatDate(str){
   }
 
 
+  function activityActionLabel(activity){
+    const labels = {
+      create: 'created a task',
+      edit: 'updated a task',
+      assign: 'changed the PIC',
+      priority: 'changed priority',
+      status: 'changed status',
+      archive: 'archived a task',
+      unarchive: 'restored a task',
+      changes: 'requested changes',
+      contributor: 'joined a task as a contributor',
+      delete: 'deleted a task',
+      update: 'updated a record'
+    };
+    return labels[activity?.action] || 'updated an activity';
+  }
+
+  function activityTaskTitle(activity){
+    const taskId = activity?.taskId || activity?.entityId;
+    if (!taskId) return 'Workspace';
+    const task = tasks.find(t => String(t.id) === String(taskId));
+    return task?.title || `Task ${taskId}`;
+  }
+
+  function renderRecentActivity(){
+    const box = document.getElementById('recentActivityList');
+    if (!box) return;
+
+    const recent = activities
+      .slice()
+      .sort((a,b) => new Date(b.at) - new Date(a.at))
+      .slice(0, 12);
+
+    if (!recent.length){
+      box.innerHTML = '<div class="dashboard-empty">No activity recorded yet.</div>';
+      return;
+    }
+
+    box.innerHTML = recent.map(activity => {
+      const title = activityTaskTitle(activity);
+      const taskExists = activity?.taskId && tasks.some(
+        task => String(task.id) === String(activity.taskId)
+      );
+      const icon = activity.action === 'delete'
+        ? '×'
+        : activity.action === 'status'
+          ? '↗'
+          : activity.action === 'assign'
+            ? '→'
+            : '•';
+      const content = `<div class="activity-feed-icon">${icon}</div><div class="activity-feed-copy"><strong>${escapeHtml(activity.actorName || 'Unknown')} <span>${escapeHtml(activityActionLabel(activity))}</span></strong><small>${escapeHtml(title)}${activity.detail ? ` · ${escapeHtml(activity.detail)}` : ''}</small></div><time>${relativeTime(activity.at)}</time>`;
+
+      return taskExists
+        ? `<button type="button" class="activity-feed-item" data-activity-task-id="${escapeHtml(activity.taskId)}">${content}</button>`
+        : `<div class="activity-feed-item">${content}</div>`;
+    }).join('');
+
+    box.querySelectorAll('[data-activity-task-id]').forEach(btn => {
+      btn.addEventListener('click', () => openDetail(btn.dataset.activityTaskId));
+    });
+  }
+
   function renderDashboard(){
     const visible = tasks;
     const total = visible.length;
@@ -3533,7 +3725,10 @@ function formatDate(str){
         <section class="dashboard-panel dashboard-status-panel"><div class="dashboard-panel-head"><div><strong>Work Distribution</strong><span>Current task status across the workspace</span></div><b>${rate}% complete</b></div><div class="dash-status-list">${statusRows}</div></section>
         <div class="dashboard-two-col"><section class="dashboard-panel"><div class="dashboard-panel-head"><div><strong>Department Health</strong><span>Completion and active workload</span></div></div><div class="dash-dept-list">${byDivision}</div></section><section class="dashboard-panel"><div class="dashboard-panel-head"><div><strong>Team Workload</strong><span>Open tasks by PIC</span></div></div><div class="dash-work-list">${workloadHtml}</div></section></div>
         <div class="dashboard-bottom-grid"><section class="dashboard-panel dash-attention-panel"><div class="dashboard-panel-head"><div><strong>Needs Attention</strong><span>High-priority workspace signals</span></div><button class="dashboard-link-btn" id="dashboardAttentionBtn">Open Task Board →</button></div><div class="dash-attention-grid">${attentionSummary}</div></section><section class="dashboard-panel dash-snapshot-panel"><div class="dashboard-panel-head"><div><strong>Quick Snapshot</strong><span>At-a-glance workload indicators</span></div></div><div class="dash-snapshot-grid"><div><strong>${todo}</strong><span>To Do</span></div><div><strong>${done}</strong><span>Completed</span></div><div><strong>${dueToday}</strong><span>Due today</span></div><div><strong>${members.filter(m=>tasks.some(t=>t.assignee===m.id && t.status!=='done')).length}</strong><span>Active PICs</span></div></div></section></div>
+
+        <section class="dashboard-panel dashboard-activity-panel"><div class="dashboard-panel-head"><div><strong>Recent Activity</strong><span>Latest workspace changes across the task board</span></div><b>${activities.length}</b></div><div class="activity-feed-list" id="recentActivityList"></div></section>
       </div>`;
+    renderRecentActivity();
     document.getElementById('dashboardAttentionBtn').addEventListener('click',()=>{ dashboardMode=false; activeDepartmenton='all'; activeProduct=null; document.getElementById('boardTitle').textContent='All Departments'; renderAll(); });
   }
 
@@ -3987,9 +4182,8 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           await deleteTask(currentDetailId);
           logActivity(currentDetailId, 'delete', 'Task deleted');
           tasks = tasks.filter(t => t.id !== currentDetailId);
-          activities = activities.filter(a => a.taskId !== currentDetailId);
-          saveActivities();
           save();
+          renderRecentActivity();
           detailOverlay.classList.remove('open');
           renderAll();
         } catch(error) {
@@ -5269,6 +5463,7 @@ window.syncLegacyWorkspaceIdentity(
 await startMembersRealtime(profile, user);
 startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
+await startActivitiesRealtime(profile, user);
 enterWorkspace();
 
   }catch(error){
@@ -5723,6 +5918,7 @@ onAuthStateChanged(auth, async (user) => {
     await startMembersRealtime(profile, user);
     startProductsRealtime(profile, user);
     await startTasksRealtime(profile, user);
+    await startActivitiesRealtime(profile, user);
 
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
@@ -5767,6 +5963,7 @@ window.syncLegacyWorkspaceIdentity(
 await startMembersRealtime(profile, user);
 startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
+await startActivitiesRealtime(profile, user);
 enterWorkspace();
 
   } catch (error) {
@@ -6192,7 +6389,7 @@ body{overflow:auto!important}
 }
 
 /* ===== v2.11 dashboard simplification ===== */
-.dashboard-compact{max-width:1450px;margin:0 auto;padding-bottom:.2rem}.dashboard-hero-compact{margin-bottom:.72rem!important;padding:1rem 1.15rem!important;min-height:112px!important}.dashboard-hero-compact .dashboard-hero-main{min-width:0}.dashboard-hero-compact h3{font-size:1.34rem!important;margin:.2rem 0 .26rem!important}.dashboard-hero-compact p{font-size:.72rem!important;max-width:720px!important}.dashboard-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin-bottom:.65rem}.dashboard-kpi-grid .dashboard-stat{min-height:88px;padding:.75rem .8rem!important;border-radius:15px!important}.dashboard-kpi-grid .dashboard-stat strong{font-size:1.5rem!important;margin:.1rem 0!important}.dashboard-kpi-grid .dashboard-stat small{font-size:.58rem!important}.dashboard-status-panel{margin-bottom:.65rem}.dash-status-list{display:flex;flex-direction:column;gap:.52rem}.dash-status-row{display:grid;grid-template-columns:minmax(160px,1.1fr) 2.8fr 42px;align-items:center;gap:.6rem}.dash-status-label{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-status-label strong{font-size:.68rem;font-weight:650}.dash-status-label b{margin-left:auto;font-size:.68rem;color:var(--ink)}.dash-status-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-status-track,.dash-dept-track,.dash-work-track{height:7px;background:#E9EEEC;border-radius:999px;overflow:hidden}.dash-status-track span,.dash-dept-track span,.dash-work-track span{display:block;height:100%;border-radius:999px}.dash-status-row>small{font-size:.6rem;color:var(--ink-soft);text-align:right}.dashboard-two-col{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);gap:.65rem;margin-bottom:.65rem}.dashboard-two-col .dashboard-panel,.dashboard-bottom-grid .dashboard-panel{min-width:0}.dash-dept-list,.dash-work-list{display:flex;flex-direction:column;gap:.55rem}.dash-dept-row{display:grid;grid-template-columns:minmax(185px,1.4fr) minmax(110px,1fr) 42px;align-items:center;gap:.65rem}.dash-dept-name{display:flex;align-items:center;gap:.42rem;min-width:0}.dash-dept-name>div{min-width:0}.dash-dept-name strong{display:block;font-size:.67rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-name small{display:block;margin-top:.1rem;font-size:.57rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-dept-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-work-row{display:grid;grid-template-columns:105px minmax(110px,1fr) 30px;align-items:center;gap:.55rem}.dash-work-person{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-work-person strong{font-size:.63rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-work-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-attention-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.dash-attention-item{display:flex;align-items:center;gap:.45rem;padding:.58rem .62rem;border-radius:10px;background:rgba(250,251,251,.72);border:1px solid rgba(31,49,46,.05)}.dash-attention-icon{width:25px;height:25px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.67rem;font-weight:800}.dash-attention-item strong{display:block;font-size:.82rem;line-height:1}.dash-attention-item small{display:block;margin-top:.14rem;font-size:.56rem;color:var(--ink-soft)}.dash-attention-item.danger .dash-attention-icon{background:#FDECEC;color:var(--high)}.dash-attention-item.warning .dash-attention-icon{background:#FFF6DF;color:#996500}.dash-attention-item.review .dash-attention-icon{background:#EDF2FA;color:#3B5BA5}.dashboard-bottom-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:.65rem}.dashboard-link-btn{border:0;background:transparent;color:var(--accent);font:600 .61rem/1 inherit;cursor:pointer;padding:.2rem 0}.dashboard-link-btn:hover{text-decoration:underline}.dash-snapshot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.45rem}.dash-snapshot-grid>div{padding:.55rem .4rem;text-align:center;background:rgba(247,249,248,.72);border-radius:10px;border:1px solid rgba(31,49,46,.045)}.dash-snapshot-grid strong{display:block;font-size:.95rem;letter-spacing:-.03em}.dash-snapshot-grid span{display:block;margin-top:.12rem;font-size:.55rem;color:var(--ink-soft)}
+.dashboard-compact{max-width:1450px;margin:0 auto;padding-bottom:.2rem}.dashboard-hero-compact{margin-bottom:.72rem!important;padding:1rem 1.15rem!important;min-height:112px!important}.dashboard-hero-compact .dashboard-hero-main{min-width:0}.dashboard-hero-compact h3{font-size:1.34rem!important;margin:.2rem 0 .26rem!important}.dashboard-hero-compact p{font-size:.72rem!important;max-width:720px!important}.dashboard-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin-bottom:.65rem}.dashboard-kpi-grid .dashboard-stat{min-height:88px;padding:.75rem .8rem!important;border-radius:15px!important}.dashboard-kpi-grid .dashboard-stat strong{font-size:1.5rem!important;margin:.1rem 0!important}.dashboard-kpi-grid .dashboard-stat small{font-size:.58rem!important}.dashboard-status-panel{margin-bottom:.65rem}.dash-status-list{display:flex;flex-direction:column;gap:.52rem}.dash-status-row{display:grid;grid-template-columns:minmax(160px,1.1fr) 2.8fr 42px;align-items:center;gap:.6rem}.dash-status-label{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-status-label strong{font-size:.68rem;font-weight:650}.dash-status-label b{margin-left:auto;font-size:.68rem;color:var(--ink)}.dash-status-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-status-track,.dash-dept-track,.dash-work-track{height:7px;background:#E9EEEC;border-radius:999px;overflow:hidden}.dash-status-track span,.dash-dept-track span,.dash-work-track span{display:block;height:100%;border-radius:999px}.dash-status-row>small{font-size:.6rem;color:var(--ink-soft);text-align:right}.dashboard-two-col{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);gap:.65rem;margin-bottom:.65rem}.dashboard-two-col .dashboard-panel,.dashboard-bottom-grid .dashboard-panel{min-width:0}.dash-dept-list,.dash-work-list{display:flex;flex-direction:column;gap:.55rem}.dash-dept-row{display:grid;grid-template-columns:minmax(185px,1.4fr) minmax(110px,1fr) 42px;align-items:center;gap:.65rem}.dash-dept-name{display:flex;align-items:center;gap:.42rem;min-width:0}.dash-dept-name>div{min-width:0}.dash-dept-name strong{display:block;font-size:.67rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-name small{display:block;margin-top:.1rem;font-size:.57rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-dept-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-work-row{display:grid;grid-template-columns:105px minmax(110px,1fr) 30px;align-items:center;gap:.55rem}.dash-work-person{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-work-person strong{font-size:.63rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-work-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-attention-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.dash-attention-item{display:flex;align-items:center;gap:.45rem;padding:.58rem .62rem;border-radius:10px;background:rgba(250,251,251,.72);border:1px solid rgba(31,49,46,.05)}.dash-attention-icon{width:25px;height:25px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.67rem;font-weight:800}.dash-attention-item strong{display:block;font-size:.82rem;line-height:1}.dash-attention-item small{display:block;margin-top:.14rem;font-size:.56rem;color:var(--ink-soft)}.dash-attention-item.danger .dash-attention-icon{background:#FDECEC;color:var(--high)}.dash-attention-item.warning .dash-attention-icon{background:#FFF6DF;color:#996500}.dash-attention-item.review .dash-attention-icon{background:#EDF2FA;color:#3B5BA5}.dashboard-bottom-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:.65rem}.dashboard-activity-panel{margin-top:.65rem}.activity-feed-list{display:flex;flex-direction:column;gap:.3rem}.activity-feed-item{width:100%;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:.6rem;border:1px solid transparent;background:var(--surface-soft);border-radius:8px;padding:.58rem .6rem;text-align:left;font-family:inherit;color:var(--ink);cursor:pointer}.activity-feed-item:hover{border-color:var(--line);background:var(--bg)}.activity-feed-icon{width:28px;height:28px;border-radius:8px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--accent)}.activity-feed-copy{min-width:0}.activity-feed-copy strong{display:block;font-size:.7rem;font-weight:600;line-height:1.35}.activity-feed-copy strong span{font-weight:500;color:var(--ink-soft)}.activity-feed-copy small{display:block;margin-top:.12rem;font-size:.63rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.activity-feed-item time{font-size:.61rem;color:var(--ink-soft);white-space:nowrap}.dashboard-link-btn{border:0;background:transparent;color:var(--accent);font:600 .61rem/1 inherit;cursor:pointer;padding:.2rem 0}.dashboard-link-btn:hover{text-decoration:underline}.dash-snapshot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.45rem}.dash-snapshot-grid>div{padding:.55rem .4rem;text-align:center;background:rgba(247,249,248,.72);border-radius:10px;border:1px solid rgba(31,49,46,.045)}.dash-snapshot-grid strong{display:block;font-size:.95rem;letter-spacing:-.03em}.dash-snapshot-grid span{display:block;margin-top:.12rem;font-size:.55rem;color:var(--ink-soft)}
 @media(max-width:950px){.dashboard-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-two-col,.dashboard-bottom-grid{grid-template-columns:1fr}.dash-status-row{grid-template-columns:140px 1fr 38px}}
 @media(max-width:600px){.dashboard-hero-compact{min-height:0!important}.dashboard-hero-compact .dashboard-hero-progress{display:none}.dashboard-kpi-grid{gap:.5rem}.dashboard-two-col,.dashboard-bottom-grid{gap:.5rem}.dash-attention-grid{grid-template-columns:1fr}.dash-snapshot-grid{grid-template-columns:repeat(2,1fr)}.dash-dept-row{grid-template-columns:1fr 42px}.dash-dept-track{grid-column:1/-1}.dash-status-row{grid-template-columns:115px 1fr 34px}}
 </style>

@@ -19,7 +19,10 @@ import {
   deleteDoc,
   runTransaction,
   onSnapshot,
-  writeBatch
+  writeBatch,
+  query,
+  orderBy,
+  limit
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -254,6 +257,58 @@ async function saveProductGroupAndTasks(divisionId, items, tasks) {
   };
 }
 
+function subscribeToActivities(onChange, onError) {
+  const activitiesQuery = query(
+    collection(db, "activities"),
+    orderBy("at", "desc"),
+    limit(200)
+  );
+
+  return onSnapshot(
+    activitiesQuery,
+    snapshot => {
+      const activities = snapshot.docs.map(docSnap => ({
+        ...docSnap.data(),
+        id: String(docSnap.id)
+      }));
+
+      onChange(activities, snapshot);
+    },
+    error => {
+      console.error("Realtime activities listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+async function addActivity(activity) {
+  const activityId = `activity-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const activityRef = doc(db, "activities", activityId);
+
+  const payload = {
+    ...activity,
+    id: activityId,
+    entityType: activity.entityType || (activity.taskId ? "task" : "workspace"),
+    entityId: activity.entityId == null
+      ? (activity.taskId == null ? null : String(activity.taskId))
+      : String(activity.entityId),
+    taskId: activity.taskId == null ? null : String(activity.taskId),
+    actorId: activity.actorId || null,
+    actorName: activity.actorName || "Unknown",
+    actorUid: activity.actorUid || null,
+    action: activity.action || "update",
+    detail: activity.detail || "",
+    at: activity.at || new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    legacy: activity.legacy === true,
+    migratedFromLocal: activity.migratedFromLocal === true,
+    migratedByUid: activity.migratedByUid || null
+  };
+
+  await setDoc(activityRef, payload);
+  return payload;
+}
+
 async function createUserProfile(uid, profileData) {
   const userRef = doc(db, "users", uid);
 
@@ -393,6 +448,8 @@ window.subscribeToMembers = subscribeToMembers;
 window.saveMember = saveMember;
 window.deleteMember = deleteMember;
 window.subscribeToProducts = subscribeToProducts;
+window.subscribeToActivities = subscribeToActivities;
+window.addActivity = addActivity;
 window.saveProductGroup = saveProductGroup;
 window.saveProductGroupAndTasks = saveProductGroupAndTasks;
 window.seedProductGroupIfMissing = seedProductGroupIfMissing;
@@ -421,6 +478,8 @@ export {
   saveMember,
   deleteMember,
   subscribeToProducts,
+  subscribeToActivities,
+  addActivity,
   saveProductGroup,
   saveProductGroupAndTasks,
   seedProductGroupIfMissing,
