@@ -2595,10 +2595,16 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                 .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
               saveMembers();
-              console.log('🔄 Realtime members synced:', members.length);
-              renderAll();
+console.log('🔄 Realtime members synced:', members.length);
+renderAll();
 
-              await ensureCurrentMemberIfMissing(remoteMembers);
+// Keep an already-open Manage Members modal in sync too.
+const membersOverlayEl = document.getElementById('membersOverlay');
+if (membersOverlayEl?.classList.contains('open')) {
+  renderMemberRows();
+}
+
+await ensureCurrentMemberIfMissing(remoteMembers);
 
               if (!memberMigrationInProgress) finishFirstSnapshot();
               return;
