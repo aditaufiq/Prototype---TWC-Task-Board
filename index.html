@@ -3970,53 +3970,75 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   let pendingImage = null;
   let pendingAttachments = [];
 
-  function populateAddForm(selectedDivision=null, selectedProduct=null){
-    const deptSelect = document.getElementById('fDepartmenton');
-    const productSelect = document.getElementById('fProduct');
-    deptSelect.innerHTML = DIVISIONS.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
-    function populateAddForm(selectedDivision = null, selectedProduct = null){
+  function populateAddForm(selectedDivision = null, selectedProduct = null) {
   const deptSelect = document.getElementById('fDepartmenton');
   const productSelect = document.getElementById('fProduct');
+  const assigneeSelect = document.getElementById('fAssignee');
+  const contributorsSelect = document.getElementById('fContributors');
 
   const editingTask = editingTaskId
     ? tasks.find(t => t.id === editingTaskId)
     : null;
 
   const selectedAssigneeId = editingTask?.assignee || null;
-  const selectedContributorIds = new Set(editingTask?.contributors || []);
-
-  // Member aktif selalu tersedia untuk assignment.
-  // Member inactive hanya dipertahankan bila dia masih menjadi
-  // assignee/contributor dari task yang sedang diedit.
-  const availableAssignees = members.filter(
-    m => m.active !== false || m.id === selectedAssigneeId
+  const selectedContributorIds = new Set(
+    editingTask?.contributors || []
   );
 
-  const availableContributors = members.filter(
-    m => m.active !== false || selectedContributorIds.has(m.id)
-  );
+  // Member aktif tersedia untuk assignment baru.
+  const activeMembers = members.filter(m => m.active !== false);
+
+  // Saat edit task lama, PIC yang sudah inactive tetap ditampilkan.
+  const assigneeMembers = activeMembers.slice();
+
+  if (
+    selectedAssigneeId &&
+    !assigneeMembers.some(m => m.id === selectedAssigneeId)
+  ) {
+    const inactiveAssignee = members.find(
+      m => m.id === selectedAssigneeId
+    );
+
+    if (inactiveAssignee) {
+      assigneeMembers.unshift(inactiveAssignee);
+    }
+  }
+
+  // Contributor inactive yang sudah terpasang pada task lama
+  // juga tetap ditampilkan.
+  const contributorMembers = activeMembers.slice();
+
+  selectedContributorIds.forEach(id => {
+    if (!contributorMembers.some(m => m.id === id)) {
+      const inactiveContributor = members.find(m => m.id === id);
+
+      if (inactiveContributor) {
+        contributorMembers.push(inactiveContributor);
+      }
+    }
+  });
 
   deptSelect.innerHTML = DIVISIONS
-    .map(d => `<option value="${d.id}">${d.name}</option>`)
+    .map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`)
     .join('');
 
-  document.getElementById('fAssignee').innerHTML =
-    availableAssignees
-      .map(m => `
-        <option value="${escapeHtml(m.id)}">
-          ${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}
-        </option>
-      `)
-      .join('');
+  assigneeSelect.innerHTML = assigneeMembers
+    .map(m => `
+      <option value="${escapeHtml(m.id)}">
+        ${escapeHtml(m.name || m.id)}
+        ${m.active === false ? ' (Inactive)' : ''}
+      </option>
+    `)
+    .join('');
 
-  document.getElementById('fContributors').innerHTML =
-    availableContributors
-      .map(m => `
-        <option value="${escapeHtml(m.id)}">
-          ${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}
-        </option>
-      `)
-      .join('');
+  contributorsSelect.innerHTML = contributorMembers
+    .map(m => `
+      <option value="${escapeHtml(m.id)}">
+        ${escapeHtml(m.name || m.id)}
+        ${m.active === false ? ' (Inactive)' : ''}
+      </option>
+    `)
+    .join('');
 
   if (selectedDivision) {
     deptSelect.value = selectedDivision;
@@ -4028,10 +4050,17 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     productSelect.innerHTML =
       `<option value="">No product / General</option>` +
       products
-        .map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
+        .map(p => `
+          <option value="${escapeHtml(p)}">
+            ${escapeHtml(p)}
+          </option>
+        `)
         .join('');
 
-    if (selectedProduct && products.includes(selectedProduct)) {
+    if (
+      selectedProduct &&
+      products.includes(selectedProduct)
+    ) {
       productSelect.value = selectedProduct;
     }
   };
@@ -4039,15 +4068,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   deptSelect.onchange = refreshProducts;
   refreshProducts();
 }
-    if (selectedDivision) deptSelect.value = selectedDivision;
-    const refreshProducts = () => {
-      const products = productListForDivision(deptSelect.value);
-      productSelect.innerHTML = `<option value="">No product / General</option>` + products.map(p => `<option value="${p}">${p}</option>`).join('');
-      if (selectedProduct && products.includes(selectedProduct)) productSelect.value = selectedProduct;
-    };
-    deptSelect.onchange = refreshProducts;
-    refreshProducts();
-  }
 
   function renderLinkEditor(links = []){
     const box = document.getElementById('linkEditorList');
@@ -4103,12 +4123,24 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   }
 
   document.getElementById('addBtn').addEventListener('click', () => {
-    if (!isAdmin()) return;
-    populateAddForm(activeDepartmenton !== 'all' ? activeDepartmenton : null, activeProduct);
-    resetForm();
-    if (activeProduct && productListForDivision(activeDepartmenton).includes(activeProduct)) document.getElementById('fProduct').value = activeProduct;
-    overlay.classList.add('open');
-  });
+  if (!isAdmin()) return;
+
+  resetForm();
+
+  populateAddForm(
+    activeDepartmenton !== 'all' ? activeDepartmenton : null,
+    activeProduct
+  );
+
+  if (
+    activeProduct &&
+    productListForDivision(activeDepartmenton).includes(activeProduct)
+  ) {
+    document.getElementById('fProduct').value = activeProduct;
+  }
+
+  overlay.classList.add('open');
+});
   document.getElementById('addLinkBtn').addEventListener('click', () => addLinkEditorRow());
 
   document.getElementById('editTaskBtn').addEventListener('click', () => {
