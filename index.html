@@ -4755,7 +4755,21 @@ completeProfileButton?.addEventListener('click', async () => {
 
     console.log('Profile berhasil dibuat:', profile);
 
-const memberId = makeFirebaseMemberId(profile, user);
+console.log('Profile berhasil dibuat:', profile);
+
+window.syncLegacyWorkspaceIdentity(
+  memberId,
+  profile.accessLevel || 'standard',
+  {
+    ...profile,
+    email: profile.email || user.email || '',
+    authUid: user.uid
+  }
+);
+
+await startMembersRealtime(profile, user);
+await startTasksRealtime(profile, user);
+enterWorkspace();
 
 window.syncLegacyWorkspaceIdentity(
   memberId,
