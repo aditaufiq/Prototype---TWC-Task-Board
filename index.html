@@ -3090,7 +3090,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     });
     return safe;
   }
-  function actorName(){ return isAdmin() ? 'Admin' : memberOf(currentRole).name; }
+  function actorName(){
+  return (
+    currentUserProfile?.username ||
+    memberOf(currentRole)?.name ||
+    'there'
+  );
+}
   function logActivity(taskId, action, detail){
     const activity = {
       taskId: taskId == null ? null : String(taskId),
@@ -3356,7 +3362,10 @@ roleTag.className =
     const review=mine.filter(t=>t.status==='review').length;
     const overdue=mine.filter(isOverdue).length;
     const dueToday=mine.filter(t=>t.status!=='done'&&t.due&&daysUntilDue(t)===0).length;
-    const name=isAdmin()?'Admin':(memberOf(currentRole)?.name||'there');
+    const name =
+  currentUserProfile?.username ||
+  memberOf(currentRole)?.name ||
+  'there';
     box.style.display='flex';
     box.innerHTML=`<div class="mts-copy"><strong>${escapeHtml(name)}’s workspace</strong><span>Only tasks assigned to you or supported by you are shown.</span></div><div class="mts-stats"><div class="mts-stat"><strong>${active}</strong><span>Active</span></div><div class="mts-stat"><strong>${review}</strong><span>In Review</span></div><div class="mts-stat ${overdue?'danger':''}"><strong>${overdue}</strong><span>Overdue</span></div><div class="mts-stat"><strong>${dueToday}</strong><span>Due today</span></div></div>`;
   }
@@ -3690,7 +3699,10 @@ function formatDate(str){
     const rate = total ? Math.round(done / total * 100) : 0;
     const attentionTotal = overdue + dueToday + review;
     const currentMember = members.find(m => m.id === currentRole);
-    const displayName = isAdmin() ? 'Admin' : (currentMember?.name || 'there');
+const displayName =
+  currentUserProfile?.username ||
+  currentMember?.name ||
+  'there';
     const todayText = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
     const statusTotal = Math.max(1,total);
     const statusRows = [
