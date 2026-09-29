@@ -2227,8 +2227,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   onAuthStateChanged,
   getUserProfile,
   getTasks,
+  subscribeToTasks,
   addTask,
-  updateTask
+  updateTask,
+  updateTasksBatch,
+  deleteTask,
+  deleteTasksBatch
 } from './js/firebase.js';
   export const DIVISIONS = [
   { id: 'pir', name: 'Product Innovation & Research', color: '#0F766E' },
@@ -2370,82 +2374,111 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let myTasksOnly = false;
   let archiveMode = false;
   let selectedTaskIds = new Set();
+  let unsubscribeTasksRealtime = null;
+  let tasksRealtimeUserUid = null;
+  let tasksRealtimeReadyPromise = Promise.resolve();
+  let taskMigrationInProgress = false;
+
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
-  tasks = tasks.map(t => ({
-    ...t,
-    id: String(t.id),
-    product: t.product || '',
-    createdBy: t.createdBy || 'admin',
-    createdAt: t.createdAt || new Date().toISOString(),
-    updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
-    statusHistory: Array.isArray(t.statusHistory) && t.statusHistory.length ? t.statusHistory : [{ status: t.status || 'todo', at: t.createdAt || new Date().toISOString(), by: t.createdBy || 'admin' }],
-    contributors: Array.isArray(t.contributors) ? t.contributors : [],
-    attachments: Array.isArray(t.attachments) ? t.attachments : [],
-    archived: t.archived === true
-  }));
-  async function loadTasksFromFirestore(profile){
-  try {
-    const remoteTasks = await getTasks();
 
-    if (remoteTasks.length > 0) {
-      tasks = remoteTasks.map(t => ({
-        ...t,
-        id: String(t.id),
-        product: t.product || '',
-        createdBy: t.createdBy || 'admin',
-        createdAt: t.createdAt || new Date().toISOString(),
-        updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
-        statusHistory:
-          Array.isArray(t.statusHistory) && t.statusHistory.length
-            ? t.statusHistory
-            : [{
-                status: t.status || 'todo',
-                at: t.createdAt || new Date().toISOString(),
-                by: t.createdBy || 'admin'
-              }],
-        contributors: Array.isArray(t.contributors) ? t.contributors : [],
-        attachments: Array.isArray(t.attachments) ? t.attachments : [],
-        archived: t.archived === true
-      }));
-
-      localStorage.setItem(
-        'taskboard_data_v2',
-        JSON.stringify(tasks)
-      );
-
-      console.log(
-        'Tasks loaded from Firestore:',
-        tasks.length
-      );
-
-      renderAll();
-      return;
-    }
-
-    // Firestore masih kosong.
-    // Hanya akun dengan accessLevel "all"
-    // yang boleh melakukan initial migration.
-    if (profile?.accessLevel === 'all' && tasks.length > 0) {
-      for (const task of tasks) {
-        await addTask(task);
-      }
-
-      console.log(
-        'Initial task migration completed:',
-        tasks.length
-      );
-
-      return;
-    }
-
-    console.log('Firestore tasks masih kosong.');
-  } catch (error) {
-    console.error(
-      'Gagal mengambil tasks dari Firestore:',
-      error
-    );
+  function normalizeTask(t){
+    const createdAt = t.createdAt || new Date().toISOString();
+    return {
+      ...t,
+      id: String(t.id),
+      product: t.product || '',
+      createdBy: t.createdBy || 'admin',
+      createdAt,
+      updatedAt: t.updatedAt || createdAt,
+      statusHistory: Array.isArray(t.statusHistory) && t.statusHistory.length
+        ? t.statusHistory
+        : [{ status: t.status || 'todo', at: createdAt, by: t.createdBy || 'admin' }],
+      contributors: Array.isArray(t.contributors) ? t.contributors : [],
+      attachments: Array.isArray(t.attachments) ? t.attachments : [],
+      archived: t.archived === true
+    };
   }
-}
+
+  tasks = tasks.map(normalizeTask);
+
+  async function startTasksRealtime(profile, user){
+    if (!user?.uid) return;
+
+    if (tasksRealtimeUserUid === user.uid && unsubscribeTasksRealtime) {
+      return tasksRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeTasksRealtime === 'function') {
+      unsubscribeTasksRealtime();
+      unsubscribeTasksRealtime = null;
+    }
+
+    tasksRealtimeUserUid = user.uid;
+    taskMigrationInProgress = false;
+
+    tasksRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      unsubscribeTasksRealtime = subscribeToTasks(
+        async (remoteTasks) => {
+          try {
+            if (remoteTasks.length > 0) {
+              tasks = remoteTasks.map(normalizeTask);
+              localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks));
+              console.log('🔄 Realtime tasks synced:', tasks.length);
+              renderAll();
+              if (!taskMigrationInProgress) finishFirstSnapshot();
+              return;
+            }
+
+            // Transitional migration: only Admin may seed an empty Firestore
+            // collection from the current local task data.
+            if (!taskMigrationInProgress && profile?.accessLevel === 'all' && tasks.length > 0) {
+              taskMigrationInProgress = true;
+              console.log('⏳ Firestore tasks kosong. Memulai initial migration...');
+
+              try {
+                for (const task of [...tasks]) {
+                  await addTask(task);
+                }
+                console.log('✅ Initial task migration completed:', tasks.length);
+              } catch (migrationError) {
+                console.error('❌ Initial task migration gagal:', migrationError);
+              } finally {
+                taskMigrationInProgress = false;
+                localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks));
+                renderAll();
+                finishFirstSnapshot();
+              }
+              return;
+            }
+
+            // Keep the existing local cache during this transitional phase.
+            // Once Firestore has data, the realtime snapshot becomes authoritative.
+            console.log('Firestore tasks masih kosong. Menjaga local task cache sementara.');
+            renderAll();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error('❌ Pemrosesan realtime tasks gagal:', error);
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error('❌ Realtime task listener error:', error);
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return tasksRealtimeReadyPromise;
+  }
 
   function save(){ localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks)); }
   function saveMembers(){ localStorage.setItem('taskboard_members_v2', JSON.stringify(members)); }
@@ -2921,23 +2954,95 @@ roleTag.className =
     bar.style.display='flex';
     const currentPics=members.filter(m=>m.active!==false).map(m=>`<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join('');
     bar.innerHTML=`<div class="bulk-count"><strong>${ids.length}</strong> selected</div><div class="bulk-controls"><select id="bulkStatus"><option value="">Status…</option>${STATUSES.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select><select id="bulkPriority"><option value="">Priority…</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><select id="bulkAssignee"><option value="">Assign…</option>${currentPics}</select><button class="btn-secondary" id="bulkApplyBtn">Apply</button><button class="btn-secondary bulk-archive-btn" id="bulkArchiveBtn">Archive</button><button class="btn-secondary bulk-delete-btn" id="bulkDeleteBtn">Delete</button><button class="bulk-clear-btn" id="bulkClearBtn">Clear</button></div>`;
-    document.getElementById('bulkApplyBtn').addEventListener('click',()=>{
+    document.getElementById('bulkApplyBtn').addEventListener('click', async ()=>{
       const ns=document.getElementById('bulkStatus').value,np=document.getElementById('bulkPriority').value,na=document.getElementById('bulkAssignee').value;
       if(!ns&&!np&&!na)return;
       const now=new Date().toISOString();
-      tasks.filter(t=>selectedTaskIds.has(t.id)).forEach(t=>{
-        if(na && t.assignee!==na){ const old=t.assignee; t.assignee=na; makeNotification(na,'assigned','Task assigned to you',`${t.title} — due ${formatDate(t.due)}`,t.id); logActivity(t.id,'assign',`${memberOf(old).name} → ${memberOf(na).name}`); }
-        if(np && t.priority!==np){ t.priority=np; logActivity(t.id,'priority',`Priority → ${PRIORITY_LABEL[np]}`); }
-        if(ns && t.status!==ns){ const old=t.status; t.status=ns; t.updatedAt=now; t.statusHistory=Array.isArray(t.statusHistory)?t.statusHistory:[]; t.statusHistory.push({status:ns,at:now,by:currentRole}); logActivity(t.id,'status',`${STATUS_LABEL[old]} → ${STATUS_LABEL[ns]}`); }
-        t.updatedAt=now;
+      const selectedTasks = tasks.filter(t=>selectedTaskIds.has(t.id));
+      const updatedTasks = selectedTasks.map(task => {
+        const next = { ...task, updatedAt: now };
+        if(na && next.assignee!==na) next.assignee=na;
+        if(np && next.priority!==np) next.priority=np;
+        if(ns && next.status!==ns){
+          next.status=ns;
+          next.statusHistory=Array.isArray(next.statusHistory)?[...next.statusHistory]:[];
+          next.statusHistory.push({status:ns,at:now,by:currentRole});
+        }
+        return next;
       });
-      selectedTaskIds.clear(); save(); renderAll();
+
+      try {
+        await updateTasksBatch(updatedTasks);
+        updatedTasks.forEach((next, index) => {
+          const task = selectedTasks[index];
+          const oldAssignee = task.assignee;
+          const oldPriority = task.priority;
+          const oldStatus = task.status;
+          Object.assign(task, next);
+          if(oldAssignee !== task.assignee){
+            makeNotification(task.assignee,'assigned','Task assigned to you',`${task.title} — due ${formatDate(task.due)}`,task.id);
+            logActivity(task.id,'assign',`${memberOf(oldAssignee).name} → ${memberOf(task.assignee).name}`);
+          }
+          if(oldPriority !== task.priority) logActivity(task.id,'priority',`Priority → ${PRIORITY_LABEL[task.priority]}`);
+          if(oldStatus !== task.status) logActivity(task.id,'status',`${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
+        });
+        selectedTaskIds.clear();
+        save();
+        renderAll();
+      } catch(error) {
+        console.error('❌ Bulk update task gagal:', error);
+        alert('Perubahan task gagal disimpan ke server. Tidak ada perubahan lokal yang diterapkan.');
+      }
     });
     const archiveBtn=document.getElementById('bulkArchiveBtn');
     const allDone=tasks.filter(t=>selectedTaskIds.has(t.id)).every(t=>t.status==='done');
     archiveBtn.disabled=!allDone; archiveBtn.title=allDone?'Archive selected completed tasks':'Only completed tasks can be archived';
-    archiveBtn.addEventListener('click',()=>{ if(!allDone)return; openConfirm({title:'Archive selected tasks?',message:`${ids.length} completed task${ids.length===1?'':'s'} will be moved out of the active board.`,confirmText:'Archive tasks',danger:false,onConfirm:()=>{ tasks.filter(t=>selectedTaskIds.has(t.id)).forEach(t=>{t.archived=true;t.updatedAt=new Date().toISOString();logActivity(t.id,'archive','Task archived');}); selectedTaskIds.clear(); save(); renderAll(); }}); });
-    document.getElementById('bulkDeleteBtn').addEventListener('click',()=>openConfirm({title:'Delete selected tasks?',message:`${ids.length} task${ids.length===1?'':'s'} will be permanently removed.`,confirmText:'Delete tasks',danger:true,onConfirm:()=>{ const idsSet=new Set(ids); tasks=tasks.filter(t=>!idsSet.has(t.id)); selectedTaskIds.clear(); save(); renderAll(); }}));
+    archiveBtn.addEventListener('click',()=>{
+      if(!allDone)return;
+      openConfirm({
+        title:'Archive selected tasks?',
+        message:`${ids.length} completed task${ids.length===1?'':'s'} will be moved out of the active board.`,
+        confirmText:'Archive tasks',
+        danger:false,
+        onConfirm: async ()=>{
+          const now = new Date().toISOString();
+          const selectedTasks = tasks.filter(t=>selectedTaskIds.has(t.id));
+          const updatedTasks = selectedTasks.map(t=>({...t, archived:true, updatedAt:now}));
+          try {
+            await updateTasksBatch(updatedTasks);
+            updatedTasks.forEach((next, index)=>{
+              Object.assign(selectedTasks[index], next);
+              logActivity(next.id,'archive','Task archived');
+            });
+            selectedTaskIds.clear();
+            save();
+            renderAll();
+          } catch(error) {
+            console.error('❌ Bulk archive gagal:', error);
+            alert('Archive gagal disimpan ke server.');
+          }
+        }
+      });
+    });
+    document.getElementById('bulkDeleteBtn').addEventListener('click',()=>openConfirm({
+      title:'Delete selected tasks?',
+      message:`${ids.length} task${ids.length===1?'':'s'} will be permanently removed.`,
+      confirmText:'Delete tasks',
+      danger:true,
+      onConfirm: async ()=>{
+        try {
+          await deleteTasksBatch(ids);
+          const idsSet=new Set(ids);
+          tasks=tasks.filter(t=>!idsSet.has(t.id));
+          selectedTaskIds.clear();
+          save();
+          renderAll();
+        } catch(error) {
+          console.error('❌ Bulk delete gagal:', error);
+          alert('Delete gagal disimpan ke server.');
+        }
+      }
+    }));
     document.getElementById('bulkClearBtn').addEventListener('click',()=>{selectedTaskIds.clear(); renderBulkBar(); if(viewMode==='list')renderListView(getFilteredTasks()); else renderBoard();});
   }
 
@@ -3028,15 +3133,27 @@ roleTag.className =
           const targetStatus = col.dataset.status;
           if (!canSetStatus(task, targetStatus)) return;
           const oldStatus = task.status;
-          task.status = targetStatus;
-          task.updatedAt = new Date().toISOString();
-          task.statusHistory = Array.isArray(task.statusHistory) ? task.statusHistory : [];
-          if (oldStatus !== task.status){
-            task.statusHistory.push({status:task.status,at:task.updatedAt,by:currentRole});
-            logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
-            if (task.assignee !== currentRole && currentRole !== 'admin') makeNotification(task.assignee, 'status', 'Task status updated', `${task.title} → ${STATUS_LABEL[task.status]}`, task.id);
-          }
-          save(); renderAll();
+          if (oldStatus === targetStatus) return;
+          const updatedTask = {
+            ...task,
+            status: targetStatus,
+            updatedAt: new Date().toISOString(),
+            statusHistory: Array.isArray(task.statusHistory) ? [...task.statusHistory] : []
+          };
+          updatedTask.statusHistory.push({status:updatedTask.status,at:updatedTask.updatedAt,by:currentRole});
+
+          updateTask(updatedTask.id, updatedTask)
+            .then(() => {
+              Object.assign(task, updatedTask);
+              logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
+              if (task.assignee !== currentRole && currentRole !== 'admin') makeNotification(task.assignee, 'status', 'Task status updated', `${task.title} → ${STATUS_LABEL[task.status]}`, task.id);
+              save();
+              renderAll();
+            })
+            .catch(error => {
+              console.error('❌ Drag/drop status update gagal:', error);
+              alert('Perubahan status gagal disimpan ke server.');
+            });
         }
       });
     });
@@ -3425,29 +3542,40 @@ function renderSummary(){
 
   document.getElementById('helpTaskBtn').addEventListener('click',()=>{const task=tasks.find(t=>t.id===currentDetailId);if(!task||currentRole==='admin'||currentRole===task.assignee)return;task.contributors=Array.isArray(task.contributors)?task.contributors:[];if(!task.contributors.includes(currentRole)){task.contributors.push(currentRole);task.updatedAt=new Date().toISOString();logActivity(task.id,'contributor',`${memberOf(currentRole).name} is helping`);save();makeNotification(task.assignee,'message',`${memberOf(currentRole).name} is helping`,`${memberOf(currentRole).name} joined as a contributor on ${task.title}`,task.id);renderContributors(task);renderAll();}});
 
-  document.getElementById('statusActionBtn').addEventListener('click', () => {
+  document.getElementById('statusActionBtn').addEventListener('click', async () => {
     const task = tasks.find(t => t.id === currentDetailId);
     if (!task || !canAdvance(task)) return;
     const NEXT = { todo: 'progress', progress: 'review', review: 'done', done: 'todo' };
     const targetStatus = NEXT[task.status];
     if (!canSetStatus(task, targetStatus)) return;
     const oldStatus = task.status;
-    task.status = targetStatus;
     const now = new Date().toISOString();
-    task.updatedAt = now;
-    task.statusHistory = Array.isArray(task.statusHistory) ? task.statusHistory : [];
-    task.statusHistory.push({ status: task.status, at: now, by: currentRole });
-    logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
-    if (task.status === 'review') {
-      const targetId = task.createdBy && task.createdBy !== currentRole ? task.createdBy : (task.assignee !== currentRole ? task.assignee : null);
-      if (targetId) makeNotification(targetId, 'review', 'Task submitted for review', `${task.title} is ready for review.`, task.id);
-    } else if (task.status === 'done') {
-      const targetId = task.createdBy && task.createdBy !== currentRole ? task.createdBy : null;
-      if (targetId) makeNotification(targetId, 'review', 'Task completed', `${task.title} was marked as done.`, task.id);
+    const updatedTask = {
+      ...task,
+      status: targetStatus,
+      updatedAt: now,
+      statusHistory: Array.isArray(task.statusHistory) ? [...task.statusHistory] : []
+    };
+    updatedTask.statusHistory.push({ status: updatedTask.status, at: now, by: currentRole });
+
+    try {
+      await updateTask(updatedTask.id, updatedTask);
+      Object.assign(task, updatedTask);
+      logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
+      if (task.status === 'review') {
+        const targetId = task.createdBy && task.createdBy !== currentRole ? task.createdBy : (task.assignee !== currentRole ? task.assignee : null);
+        if (targetId) makeNotification(targetId, 'review', 'Task submitted for review', `${task.title} is ready for review.`, task.id);
+      } else if (task.status === 'done') {
+        const targetId = task.createdBy && task.createdBy !== currentRole ? task.createdBy : null;
+        if (targetId) makeNotification(targetId, 'review', 'Task completed', `${task.title} was marked as done.`, task.id);
+      }
+      save();
+      detailOverlay.classList.remove('open');
+      renderAll();
+    } catch(error) {
+      console.error('❌ Status action gagal:', error);
+      alert('Perubahan status gagal disimpan ke server.');
     }
-    save();
-    detailOverlay.classList.remove('open');
-    renderAll();
   });
 
   document.getElementById('requestChangesBtn').addEventListener('click', () => {
@@ -3459,29 +3587,50 @@ function renderSummary(){
       message: `“${task.title}” will move back to In Progress for another revision.`,
       confirmText: 'Request changes',
       danger: false,
-      onConfirm: () => {
+      onConfirm: async () => {
         const oldStatus = task.status;
-        task.status = 'progress';
         const now = new Date().toISOString();
-        task.updatedAt = now;
-        task.statusHistory = Array.isArray(task.statusHistory) ? task.statusHistory : [];
-        task.statusHistory.push({ status: task.status, at: now, by: currentRole });
-        logActivity(task.id, 'changes', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]} (changes requested)`);
-        const targetId = task.assignee !== currentRole ? task.assignee : (task.createdBy && task.createdBy !== currentRole ? task.createdBy : null);
-        if (targetId) makeNotification(targetId, 'changes', 'Changes requested', `${task.title} needs another revision.`, task.id);
-        save();
-        detailOverlay.classList.remove('open');
-        renderAll();
+        const updatedTask = {
+          ...task,
+          status: 'progress',
+          updatedAt: now,
+          statusHistory: Array.isArray(task.statusHistory) ? [...task.statusHistory] : []
+        };
+        updatedTask.statusHistory.push({ status: updatedTask.status, at: now, by: currentRole });
+
+        try {
+          await updateTask(updatedTask.id, updatedTask);
+          Object.assign(task, updatedTask);
+          logActivity(task.id, 'changes', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]} (changes requested)`);
+          const targetId = task.assignee !== currentRole ? task.assignee : (task.createdBy && task.createdBy !== currentRole ? task.createdBy : null);
+          if (targetId) makeNotification(targetId, 'changes', 'Changes requested', `${task.title} needs another revision.`, task.id);
+          save();
+          detailOverlay.classList.remove('open');
+          renderAll();
+        } catch(error) {
+          console.error('❌ Request changes gagal:', error);
+          alert('Perubahan status gagal disimpan ke server.');
+        }
       }
     });
   });
 
-  document.getElementById('archiveTaskBtn').addEventListener('click',()=>{
+  document.getElementById('archiveTaskBtn').addEventListener('click',async ()=>{
     const task=tasks.find(t=>t.id===currentDetailId);
     if(!task||!isAdmin()||task.status!=='done')return;
-    if(task.archived){ task.archived=false; logActivity(task.id,'unarchive','Task restored to active board'); }
-    else { task.archived=true; logActivity(task.id,'archive','Task archived'); }
-    task.updatedAt=new Date().toISOString(); save(); detailOverlay.classList.remove('open'); renderAll();
+    const nextArchived = !task.archived;
+    const updatedTask = { ...task, archived: nextArchived, updatedAt: new Date().toISOString() };
+    try {
+      await updateTask(updatedTask.id, updatedTask);
+      Object.assign(task, updatedTask);
+      logActivity(task.id,nextArchived?'archive':'unarchive',nextArchived?'Task archived':'Task restored to active board');
+      save();
+      detailOverlay.classList.remove('open');
+      renderAll();
+    } catch(error) {
+      console.error('❌ Archive update gagal:', error);
+      alert('Perubahan archive gagal disimpan ke server.');
+    }
   });
 
   let pendingConfirm = null;
@@ -3512,14 +3661,20 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       message: `“${task.title}” will be permanently removed from the Task Board.`,
       confirmText: 'Delete task',
       danger: true,
-      onConfirm: () => {
-        logActivity(currentDetailId, 'delete', 'Task deleted');
-        tasks = tasks.filter(t => t.id !== currentDetailId);
-        activities = activities.filter(a => a.taskId !== currentDetailId);
-        saveActivities();
-        save();
-        detailOverlay.classList.remove('open');
-        renderAll();
+      onConfirm: async () => {
+        try {
+          await deleteTask(currentDetailId);
+          logActivity(currentDetailId, 'delete', 'Task deleted');
+          tasks = tasks.filter(t => t.id !== currentDetailId);
+          activities = activities.filter(a => a.taskId !== currentDetailId);
+          saveActivities();
+          save();
+          detailOverlay.classList.remove('open');
+          renderAll();
+        } catch(error) {
+          console.error('❌ Delete task gagal:', error);
+          alert('Task gagal dihapus dari server.');
+        }
       }
     });
   });
@@ -4696,7 +4851,13 @@ document
     button.textContent = 'Saving...';
 
     try{
-
+       
+        console.log('PHOTO DEBUG BEFORE SAVE:', {
+    x: editPhotoX,
+    y: editPhotoY,
+    zoom: editPhotoZoom
+  });
+  
       const updatedProfile =
         await window.updateUserProfile(
           auth.currentUser.uid,
@@ -4784,6 +4945,8 @@ onAuthStateChanged(auth, async (user) => {
       accessLevel: profile.accessLevel
     });
 
+    await startTasksRealtime(profile, user);
+
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
   }
@@ -4809,8 +4972,7 @@ if (!profile) {
   return;
 }
 
-await loadTasksFromFirestore(profile);
-
+await startTasksRealtime(profile, user);
 enterWorkspace();
 
   } catch (error) {

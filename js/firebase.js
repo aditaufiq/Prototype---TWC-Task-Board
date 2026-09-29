@@ -17,7 +17,9 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
-  runTransaction
+  runTransaction,
+  onSnapshot,
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -86,6 +88,26 @@ async function getTasks() {
   return snapshot.docs.map(docSnap => docSnap.data());
 }
 
+function subscribeToTasks(onChange, onError) {
+  const tasksRef = collection(db, "tasks");
+
+  return onSnapshot(
+    tasksRef,
+    snapshot => {
+      const tasks = snapshot.docs.map(docSnap => ({
+        ...docSnap.data(),
+        id: String(docSnap.id)
+      }));
+
+      onChange(tasks, snapshot);
+    },
+    error => {
+      console.error("Realtime tasks listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
 async function addTask(task) {
   const counterRef = doc(db, "counters", "tasks");
 
@@ -138,6 +160,32 @@ async function updateTask(taskId, taskData) {
   return taskData;
 }
 
+async function updateTasksBatch(tasks) {
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+
+  for (const task of tasks) {
+    const taskRef = doc(db, "tasks", String(task.id));
+    batch.update(taskRef, {
+      ...task,
+      updatedAt: task.updatedAt || now
+    });
+  }
+
+  await batch.commit();
+  return tasks;
+}
+
+async function deleteTasksBatch(taskIds) {
+  const batch = writeBatch(db);
+
+  for (const taskId of taskIds) {
+    batch.delete(doc(db, "tasks", String(taskId)));
+  }
+
+  await batch.commit();
+}
+
 async function updateUserProfile(uid, profileData) {
   const userRef = doc(db, "users", uid);
 
@@ -160,8 +208,11 @@ window.createUserProfile = createUserProfile;
 window.updateUserProfile = updateUserProfile;
 window.addTask = addTask;
 window.updateTask = updateTask;
+window.updateTasksBatch = updateTasksBatch;
 window.deleteTask = deleteTask;
+window.deleteTasksBatch = deleteTasksBatch;
 window.getTasks = getTasks;
+window.subscribeToTasks = subscribeToTasks;
 
 export {
   app,
@@ -175,8 +226,11 @@ export {
   getUserProfile,
   createUserProfile,
   getTasks,
+  subscribeToTasks,
   addTask,
   updateTask,
+  updateTasksBatch,
   deleteTask,
+  deleteTasksBatch,
   updateUserProfile
 };
