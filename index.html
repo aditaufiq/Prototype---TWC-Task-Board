@@ -3361,6 +3361,58 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     );
   }
 
+  function buildTaskEventNotificationRequest(task, event, overrides = {}) {
+    if (!task) return null;
+
+    let recipientUid = null;
+    let recipientMemberId = null;
+
+    if (event === 'assigned' || event === 'changes_requested') {
+      recipientMemberId = String(task.assignee || '');
+      const member = members.find(m => String(m.id) === recipientMemberId);
+      recipientUid = member?.authUid || null;
+    } else if (event === 'review_submitted' || event === 'completed') {
+      recipientMemberId = String(task.createdBy || '');
+      recipientUid = task.createdByUid || members.find(m => String(m.id) === recipientMemberId)?.authUid || null;
+    }
+
+    if (!recipientUid || !recipientMemberId || String(recipientUid) === String(currentUserUid)) {
+      return null;
+    }
+
+    const titleMap = {
+      assigned: 'Task assigned to you',
+      review_submitted: 'Task submitted for review',
+      changes_requested: 'Changes requested',
+      completed: 'Task completed'
+    };
+
+    const bodyMap = {
+      assigned: `You are now the PIC for “${task.title}”.`,
+      review_submitted: `“${task.title}” is ready for review.`,
+      changes_requested: `“${task.title}” needs another revision.`,
+      completed: `“${task.title}” was marked as done.`
+    };
+
+    const type = event === 'assigned' ? 'assigned'
+      : event === 'changes_requested' ? 'changes'
+      : 'review';
+
+    return {
+      recipientUid: String(recipientUid),
+      recipientMemberId,
+      type,
+      priority: overrides.priority || 'normal',
+      title: overrides.title || titleMap[event] || 'Task update',
+      body: overrides.body || bodyMap[event] || `“${task.title}” was updated.`,
+      taskId: String(task.id),
+      sourceType: 'taskEvent',
+      sourceId: String(task.id),
+      sourceEvent: event,
+      eventAt: task.updatedAt || new Date().toISOString()
+    };
+  }
+
   function makeNotification(userId, type, title, body, taskId=null, options={}){
     // Stage 6 personal notifications are now Firestore-backed.
     // Cross-user notifications are created atomically with their source event
@@ -3755,19 +3807,52 @@ roleTag.className =
       });
 
       try {
-        await updateTasksBatch(updatedTasks);
+        const taskNotificationRequests = [];
+
+        updatedTasks.forEach((next, index) => {
+          const task = selectedTasks[index];
+          const oldAssignee = task.assignee;
+          const oldStatus = task.status;
+
+          if (oldAssignee !== next.assignee) {
+            const request = buildTaskEventNotificationRequest(next, 'assigned');
+            if (request) taskNotificationRequests.push(request);
+          }
+
+          if (oldStatus !== next.status) {
+            const event = next.status === 'review'
+              ? 'review_submitted'
+              : next.status === 'done'
+                ? 'completed'
+                : null;
+
+            if (event) {
+              const request = buildTaskEventNotificationRequest(next, event);
+              if (request) taskNotificationRequests.push(request);
+            }
+          }
+        });
+
+        await updateTasksBatch(updatedTasks, taskNotificationRequests);
+
         updatedTasks.forEach((next, index) => {
           const task = selectedTasks[index];
           const oldAssignee = task.assignee;
           const oldPriority = task.priority;
           const oldStatus = task.status;
           Object.assign(task, next);
+
           if(oldAssignee !== task.assignee){
-            makeNotification(task.assignee,'assigned','Task assigned to you',`${task.title} — due ${formatDate(task.due)}`,task.id);
             logActivity(task.id,'assign',`${memberOf(oldAssignee).name} → ${memberOf(task.assignee).name}`);
           }
-          if(oldPriority !== task.priority) logActivity(task.id,'priority',`Priority → ${PRIORITY_LABEL[task.priority]}`);
-          if(oldStatus !== task.status) logActivity(task.id,'status',`${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
+
+          if(oldPriority !== task.priority) {
+            logActivity(task.id,'priority',`Priority → ${PRIORITY_LABEL[task.priority]}`);
+          }
+
+          if(oldStatus !== task.status) {
+            logActivity(task.id,'status',`${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
+          }
         });
         selectedTaskIds.clear();
         save();
@@ -4468,16 +4553,16 @@ function renderSummary(){
     updatedTask.statusHistory.push({ status: updatedTask.status, at: now, by: currentRole });
 
     try {
-      await updateTask(updatedTask.id, updatedTask);
+      const taskNotificationRequests = [];
+      const event = task.status === 'review' ? 'review_submitted' : task.status === 'done' ? 'completed' : null;
+      if (event) {
+        const request = buildTaskEventNotificationRequest(updatedTask, event);
+        if (request) taskNotificationRequests.push(request);
+      }
+
+      await updateTask(updatedTask.id, updatedTask, taskNotificationRequests);
       Object.assign(task, updatedTask);
       logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
-      if (task.status === 'review') {
-        const targetId = task.createdBy && task.createdBy !== currentRole ? task.createdBy : (task.assignee !== currentRole ? task.assignee : null);
-        if (targetId) makeNotification(targetId, 'review', 'Task submitted for review', `${task.title} is ready for review.`, task.id);
-      } else if (task.status === 'done') {
-        const targetId = task.createdBy && task.createdBy !== currentRole ? task.createdBy : null;
-        if (targetId) makeNotification(targetId, 'review', 'Task completed', `${task.title} was marked as done.`, task.id);
-      }
       save();
       closeDetail();
       renderAll();
@@ -4508,11 +4593,13 @@ function renderSummary(){
         updatedTask.statusHistory.push({ status: updatedTask.status, at: now, by: currentRole });
 
         try {
-          await updateTask(updatedTask.id, updatedTask);
+          const taskNotificationRequests = [];
+          const request = buildTaskEventNotificationRequest(updatedTask, 'changes_requested');
+          if (request) taskNotificationRequests.push(request);
+
+          await updateTask(updatedTask.id, updatedTask, taskNotificationRequests);
           Object.assign(task, updatedTask);
           logActivity(task.id, 'changes', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]} (changes requested)`);
-          const targetId = task.assignee !== currentRole ? task.assignee : (task.createdBy && task.createdBy !== currentRole ? task.createdBy : null);
-          if (targetId) makeNotification(targetId, 'changes', 'Changes requested', `${task.title} needs another revision.`, task.id);
           save();
           closeDetail();
           renderAll();
@@ -5040,8 +5127,15 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   };
 
   try {
-    // 1. Update Firestore terlebih dahulu
-    await updateTask(updatedTask.id, updatedTask);
+    // Build a task-assignment notification before the atomic task write.
+    const taskNotificationRequests = [];
+    if (oldAssignee !== updatedTask.assignee) {
+      const request = buildTaskEventNotificationRequest(updatedTask, 'assigned');
+      if (request) taskNotificationRequests.push(request);
+    }
+
+    // 1. Update Firestore + any task-event notification atomically.
+    await updateTask(updatedTask.id, updatedTask, taskNotificationRequests);
 
     // 2. Kalau Firestore sukses, baru update state lokal
     Object.assign(task, updatedTask);
@@ -5058,14 +5152,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         'assign',
         `${memberOf(oldAssignee).name} → ${memberOf(task.assignee).name}`
       );
-
-      makeNotification(
-        task.assignee,
-        'assigned',
-        'Task assigned to you',
-        `${task.title} — due ${formatDate(task.due)}`,
-        task.id
-      );
     }
 
     if (oldStatus !== task.status) {
@@ -5075,18 +5161,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`
       );
 
-      if (
-        task.assignee !== currentRole &&
-        currentRole !== 'admin'
-      ) {
-        makeNotification(
-          task.assignee,
-          'status',
-          'Task status updated',
-          `${task.title} → ${STATUS_LABEL[task.status]}`,
-          task.id
-        );
-      }
     }
 
     console.log(
@@ -5126,8 +5200,12 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   };
 
   try {
-    // 1. Simpan ke Firestore dulu
-    await window.addTask(newTask);
+    const taskNotificationRequests = [];
+    const request = buildTaskEventNotificationRequest(newTask, 'assigned');
+    if (request) taskNotificationRequests.push(request);
+
+    // 1. Simpan task + assignment notification secara atomik.
+    await window.addTask(newTask, taskNotificationRequests);
 
     // 2. Kalau sukses, baru masukkan ke state lokal
     tasks.push(newTask);
@@ -5138,13 +5216,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       `Created for ${memberOf(newTask.assignee).name}`
     );
 
-    makeNotification(
-      newTask.assignee,
-      'assigned',
-      'New task assigned to you',
-      `${newTask.title} — due ${formatDate(newTask.due)}`,
-      newTask.id
-    );
 
     console.log('✅ Task berhasil disimpan ke Firestore:', newTask);
 

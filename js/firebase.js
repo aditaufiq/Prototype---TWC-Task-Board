@@ -614,7 +614,52 @@ function currentAuthUid() {
   return auth.currentUser?.uid || null;
 }
 
-async function addTask(task) {
+function addTaskEventNotificationsToBatch(batch, taskId, notificationRequests, actorUid) {
+  const requests = Array.isArray(notificationRequests) ? notificationRequests : [];
+  const now = new Date().toISOString();
+  const seen = new Set();
+
+  for (const request of requests) {
+    const recipientUid = String(request?.recipientUid || '').trim();
+    const recipientMemberId = String(request?.recipientMemberId || '').trim();
+    if (!recipientUid || !recipientMemberId || !actorUid) continue;
+    if (recipientUid === String(actorUid)) continue;
+    if (request?.sourceType !== 'taskEvent') continue;
+    if (seen.has(recipientUid)) continue;
+    seen.add(recipientUid);
+
+    const eventAt = request.eventAt || now;
+    const event = request.sourceEvent || request.type || 'update';
+    const actualTaskId = String(taskId);
+    const notificationId = `task-${actualTaskId}-${String(event)}-${String(eventAt).replace(/[^0-9A-Za-z]/g, '')}-${recipientMemberId}`;
+    const notificationRef = doc(db, 'users', recipientUid, 'notifications', notificationId);
+
+    batch.set(notificationRef, {
+      id: notificationId,
+      recipientUid,
+      recipientMemberId,
+      type: request.type || 'review',
+      priority: request.priority || 'normal',
+      title: request.title || 'Task update',
+      body: String(request.body || ''),
+      taskId: actualTaskId,
+      commentId: null,
+      sourceType: 'taskEvent',
+      sourceId: actualTaskId,
+      sourceEvent: event,
+      actorUid: String(actorUid),
+      actorMemberId: request.actorMemberId || null,
+      actorName: request.actorName || null,
+      read: false,
+      at: eventAt,
+      createdAt: now,
+      updatedAt: now,
+      legacy: false
+    });
+  }
+}
+
+async function addTask(task, notificationRequests = []) {
   const counterRef = doc(db, "counters", "tasks");
 
   const nextNumber = await runTransaction(db, async (transaction) => {
@@ -639,39 +684,47 @@ async function addTask(task) {
   });
 
   const taskId = `task-${String(nextNumber).padStart(3, "0")}`;
-
-  // Ganti ID timestamp menjadi ID urut
   task.id = taskId;
 
   const taskRef = doc(db, "tasks", taskId);
-
   const actorUid = currentAuthUid();
+  const now = new Date().toISOString();
 
-  await setDoc(taskRef, {
+  const batch = writeBatch(db);
+  batch.set(taskRef, {
     ...task,
     createdByUid: task.createdByUid || actorUid,
     updatedByUid: actorUid,
-    updatedAt: new Date().toISOString()
+    updatedAt: task.updatedAt || now
   });
 
-  console.log("✅ Task berhasil disimpan ke Firestore:", task);
+  addTaskEventNotificationsToBatch(batch, taskId, notificationRequests, actorUid, task.createdByUid || actorUid);
 
+  await batch.commit();
+
+  console.log("✅ Task berhasil disimpan ke Firestore:", task);
   return task;
 }
 
-async function updateTask(taskId, taskData) {
+async function updateTask(taskId, taskData, notificationRequests = []) {
   const taskRef = doc(db, "tasks", String(taskId));
+  const actorUid = currentAuthUid();
+  const now = new Date().toISOString();
 
-  await updateDoc(taskRef, {
+  const batch = writeBatch(db);
+  batch.update(taskRef, {
     ...taskData,
-    updatedByUid: currentAuthUid(),
-    updatedAt: new Date().toISOString()
+    updatedByUid: actorUid,
+    updatedAt: taskData.updatedAt || now
   });
 
+  addTaskEventNotificationsToBatch(batch, String(taskId), notificationRequests, actorUid);
+
+  await batch.commit();
   return taskData;
 }
 
-async function updateTasksBatch(tasks) {
+async function updateTasksBatch(tasks, notificationRequests = []) {
   const batch = writeBatch(db);
   const now = new Date().toISOString();
 
@@ -681,6 +734,48 @@ async function updateTasksBatch(tasks) {
       ...task,
       updatedByUid: currentAuthUid(),
       updatedAt: task.updatedAt || now
+    });
+  }
+
+  const actorUid = currentAuthUid();
+  const seenNotificationKeys = new Set();
+  for (const request of Array.isArray(notificationRequests) ? notificationRequests : []) {
+    const recipientUid = String(request?.recipientUid || '').trim();
+    const recipientMemberId = String(request?.recipientMemberId || '').trim();
+    const taskId = String(request?.taskId || '');
+    if (!recipientUid || !recipientMemberId || !taskId || !actorUid) continue;
+    if (recipientUid === String(actorUid)) continue;
+
+    const key = `${taskId}|${request.sourceEvent || request.type}|${recipientUid}`;
+    if (seenNotificationKeys.has(key)) continue;
+    seenNotificationKeys.add(key);
+
+    const eventAt = request.eventAt || now;
+    const event = request.sourceEvent || request.type || 'update';
+    const notificationId = `task-${taskId}-${event}-${String(eventAt).replace(/[^0-9A-Za-z]/g, '')}-${recipientMemberId}`;
+    const notificationRef = doc(db, 'users', recipientUid, 'notifications', notificationId);
+
+    batch.set(notificationRef, {
+      id: notificationId,
+      recipientUid,
+      recipientMemberId,
+      type: request.type || 'review',
+      priority: request.priority || 'normal',
+      title: request.title || 'Task update',
+      body: String(request.body || ''),
+      taskId,
+      commentId: null,
+      sourceType: 'taskEvent',
+      sourceId: taskId,
+      sourceEvent: event,
+      actorUid: String(actorUid),
+      actorMemberId: request.actorMemberId || null,
+      actorName: request.actorName || null,
+      read: false,
+      at: eventAt,
+      createdAt: now,
+      updatedAt: now,
+      legacy: false
     });
   }
 
