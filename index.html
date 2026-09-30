@@ -4086,7 +4086,13 @@ function renderSummary(){
     }));
   }
 
-  function notificationCategory(type){ if(type==='mention') return 'mentions'; if(type==='deadline'||type==='overdue') return 'deadlines'; if(type==='assigned') return 'tasks'; if(type==='review'||type==='changes') return 'reviews'; return 'messages'; }
+  function notificationCategory(type){
+  if(type==='mention') return 'mentions';
+  if(type==='deadline'||type==='overdue') return 'deadlines';
+  if(type==='assigned') return 'tasks';
+  if(type==='review'||type==='changes') return 'reviews';
+  return 'messages';
+}
   function notificationCategory(type){
     if(type==='mention') return 'mentions';
     if(type==='deadline'||type==='overdue') return 'deadlines';
