@@ -4659,7 +4659,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         'mention',
         'high',
         `${comment.authorName} mentioned you`,
-        `In ${task.title}: ${comment.text.slice(0, 180)}`
+        `${comment.text.slice(0, 180)}`
       );
     });
 
@@ -4672,7 +4672,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           'reply',
           'normal',
           `${comment.authorName} replied to your comment`,
-          `In ${task.title}: ${comment.text.slice(0, 180)}`
+          `${comment.text.slice(0, 180)}`
         );
       }
     }
@@ -4685,7 +4685,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         'message',
         'normal',
         `${comment.authorName} commented on your task`,
-        `${task.title}: ${comment.text.slice(0, 180)}`
+        `${comment.text.slice(0, 180)}`
       );
     }
 
