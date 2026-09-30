@@ -390,6 +390,188 @@ async function addActivity(activity) {
   return payload;
 }
 
+function subscribeToNotifications(userUid, onChange, onError) {
+  const uid = String(userUid || '').trim();
+  if (!uid) throw new Error("User UID notification tidak boleh kosong.");
+
+  const notificationsRef = collection(db, "users", uid, "notifications");
+
+  return onSnapshot(
+    notificationsRef,
+    snapshot => {
+      const notifications = snapshot.docs
+        .map(docSnap => ({
+          ...docSnap.data(),
+          id: String(docSnap.id)
+        }))
+        .sort((a, b) => new Date(b.at || b.createdAt || 0) - new Date(a.at || a.createdAt || 0))
+        .slice(0, 3000);
+
+      onChange(notifications, snapshot);
+    },
+    error => {
+      console.error("Realtime personal notifications listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+async function addNotificationForUser(userUid, notification, notificationId = null) {
+  const uid = String(userUid || '').trim();
+  if (!uid) throw new Error("Recipient UID notification tidak boleh kosong.");
+
+  const id = String(
+    notificationId ||
+    notification?.id ||
+    `notification-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  );
+
+  const notificationRef = doc(db, "users", uid, "notifications", id);
+  const now = new Date().toISOString();
+
+  const payload = {
+    ...notification,
+    recipientUid: uid,
+    id,
+    type: notification?.type || 'message',
+    priority: notification?.priority || (notification?.type === 'mention' ? 'high' : 'normal'),
+    title: notification?.title || 'Notification',
+    body: String(notification?.body || ''),
+    taskId: notification?.taskId == null ? null : String(notification.taskId),
+    commentId: notification?.commentId == null ? null : String(notification.commentId),
+    sourceType: notification?.sourceType || 'self',
+    sourceId: notification?.sourceId == null ? null : String(notification.sourceId),
+    read: notification?.read === true,
+    at: notification?.at || now,
+    createdAt: notification?.createdAt || now,
+    updatedAt: now
+  };
+
+  await setDoc(notificationRef, payload, { merge: true });
+  return payload;
+}
+
+async function addCommentWithNotifications(comment, notificationRequests = []) {
+  const commentId = String(
+    comment?.id || `comment-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  );
+  const commentRef = doc(db, "comments", commentId);
+  const now = new Date().toISOString();
+
+  const commentPayload = {
+    ...comment,
+    id: commentId,
+    taskId: String(comment?.taskId || ''),
+    authorId: String(comment?.authorId || ''),
+    authorName: comment?.authorName || "Unknown",
+    authorUid: comment?.authorUid || null,
+    text: String(comment?.text || '').trim(),
+    at: comment?.at || now,
+    createdAt: comment?.createdAt || now,
+    replyToId: comment?.replyToId ? String(comment.replyToId) : null,
+    mentions: Array.isArray(comment?.mentions)
+      ? comment.mentions.map(id => String(id)).filter(Boolean)
+      : [],
+    legacy: comment?.legacy === true,
+    migratedFromLocal: comment?.migratedFromLocal === true,
+    migratedByUid: comment?.migratedByUid || null
+  };
+
+  if (!commentPayload.taskId || !commentPayload.text) {
+    throw new Error("Comment membutuhkan taskId dan text.");
+  }
+
+  if (!commentPayload.authorUid && !commentPayload.legacy) {
+    throw new Error("Comment non-legacy membutuhkan authorUid.");
+  }
+
+  const batch = writeBatch(db);
+  batch.set(commentRef, commentPayload);
+
+  const seenRecipients = new Set();
+
+  for (const request of Array.isArray(notificationRequests) ? notificationRequests : []) {
+    const recipientUid = String(request?.recipientUid || '').trim();
+    const recipientMemberId = String(request?.recipientMemberId || '').trim();
+
+    if (!recipientUid || !recipientMemberId || recipientUid === commentPayload.authorUid) continue;
+    if (seenRecipients.has(recipientUid)) continue;
+
+    seenRecipients.add(recipientUid);
+
+    const notificationId = `comment-${commentId}-${recipientMemberId}`;
+    const notificationRef = doc(
+      db,
+      "users",
+      recipientUid,
+      "notifications",
+      notificationId
+    );
+
+    batch.set(notificationRef, {
+      id: notificationId,
+      recipientUid,
+      recipientMemberId,
+      type: request.type || 'message',
+      priority: request.priority || (request.type === 'mention' ? 'high' : 'normal'),
+      title: request.title || 'New task activity',
+      body: String(request.body || ''),
+      taskId: commentPayload.taskId,
+      commentId,
+      sourceType: 'comment',
+      sourceId: commentId,
+      actorUid: commentPayload.authorUid,
+      actorMemberId: commentPayload.authorId,
+      actorName: commentPayload.authorName,
+      read: false,
+      at: commentPayload.at,
+      createdAt: now,
+      updatedAt: now,
+      legacy: false
+    });
+  }
+
+  await batch.commit();
+  return commentPayload;
+}
+
+async function markNotificationRead(userUid, notificationId) {
+  const uid = String(userUid || '').trim();
+  const id = String(notificationId || '').trim();
+  if (!uid || !id) throw new Error("Notification user/id tidak boleh kosong.");
+
+  const notificationRef = doc(db, "users", uid, "notifications", id);
+  await updateDoc(notificationRef, {
+    read: true,
+    readAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+async function markAllNotificationsRead(userUid, unreadNotifications = []) {
+  const uid = String(userUid || '').trim();
+  if (!uid) throw new Error("User UID notification tidak boleh kosong.");
+
+  const pending = (Array.isArray(unreadNotifications) ? unreadNotifications : [])
+    .filter(notification => notification && !notification.read && notification.id);
+
+  if (!pending.length) return;
+
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+
+  for (const notification of pending) {
+    const notificationRef = doc(db, "users", uid, "notifications", String(notification.id));
+    batch.update(notificationRef, {
+      read: true,
+      readAt: now,
+      updatedAt: now
+    });
+  }
+
+  await batch.commit();
+}
+
 async function createUserProfile(uid, profileData) {
   const userRef = doc(db, "users", uid);
 
@@ -428,6 +610,10 @@ function subscribeToTasks(onChange, onError) {
   );
 }
 
+function currentAuthUid() {
+  return auth.currentUser?.uid || null;
+}
+
 async function addTask(task) {
   const counterRef = doc(db, "counters", "tasks");
 
@@ -459,8 +645,12 @@ async function addTask(task) {
 
   const taskRef = doc(db, "tasks", taskId);
 
+  const actorUid = currentAuthUid();
+
   await setDoc(taskRef, {
     ...task,
+    createdByUid: task.createdByUid || actorUid,
+    updatedByUid: actorUid,
     updatedAt: new Date().toISOString()
   });
 
@@ -474,6 +664,7 @@ async function updateTask(taskId, taskData) {
 
   await updateDoc(taskRef, {
     ...taskData,
+    updatedByUid: currentAuthUid(),
     updatedAt: new Date().toISOString()
   });
 
@@ -488,6 +679,7 @@ async function updateTasksBatch(tasks) {
     const taskRef = doc(db, "tasks", String(task.id));
     batch.update(taskRef, {
       ...task,
+      updatedByUid: currentAuthUid(),
       updatedAt: task.updatedAt || now
     });
   }
@@ -534,6 +726,11 @@ window.addActivity = addActivity;
 window.subscribeToComments = subscribeToComments;
 window.getAllComments = getAllComments;
 window.addComment = addComment;
+window.addCommentWithNotifications = addCommentWithNotifications;
+window.subscribeToNotifications = subscribeToNotifications;
+window.addNotificationForUser = addNotificationForUser;
+window.markNotificationRead = markNotificationRead;
+window.markAllNotificationsRead = markAllNotificationsRead;
 window.saveProductGroup = saveProductGroup;
 window.saveProductGroupAndTasks = saveProductGroupAndTasks;
 window.seedProductGroupIfMissing = seedProductGroupIfMissing;
@@ -567,6 +764,11 @@ export {
   subscribeToComments,
   getAllComments,
   addComment,
+  addCommentWithNotifications,
+  subscribeToNotifications,
+  addNotificationForUser,
+  markNotificationRead,
+  markAllNotificationsRead,
   saveProductGroup,
   saveProductGroupAndTasks,
   seedProductGroupIfMissing,

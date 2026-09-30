@@ -2239,6 +2239,11 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   subscribeToComments,
   getAllComments,
   addComment,
+  addCommentWithNotifications,
+  subscribeToNotifications,
+  addNotificationForUser,
+  markNotificationRead,
+  markAllNotificationsRead,
   getTasks,
   subscribeToTasks,
   addTask,
@@ -2415,6 +2420,12 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let commentsRealtimeReadyPromise = Promise.resolve();
   let commentsMigrationChecked = false;
   let commentsMigrationInProgress = false;
+  let unsubscribeNotificationsRealtime = null;
+  let notificationsRealtimeUserUid = null;
+  let notificationsRealtimeReadyPromise = Promise.resolve();
+  let notificationMigrationInProgress = false;
+  let notificationRealtimeInitialized = false;
+  let currentUserUid = null;
 
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
 
@@ -2918,6 +2929,153 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return activitiesRealtimeReadyPromise;
   }
 
+  async function migrateLegacyNotificationsIfNeeded(profile, user){
+    if (notificationMigrationInProgress || !user?.uid) return;
+
+    const legacyMine = notifications
+      .filter(n => String(n.userId || '') === String(currentRole))
+      .map(n => ({ ...n }));
+
+    if (!legacyMine.length) return;
+
+    notificationMigrationInProgress = true;
+
+    try {
+      for (const legacy of legacyMine) {
+        await addNotificationForUser(
+          user.uid,
+          {
+            ...legacy,
+            recipientUid: user.uid,
+            recipientMemberId: currentRole,
+            sourceType: 'legacy',
+            sourceId: String(legacy.id || `legacy-${Date.now()}`),
+            legacy: true,
+            migratedByUid: user.uid,
+            read: legacy.read === true,
+            createdAt: legacy.createdAt || legacy.at || new Date().toISOString(),
+            at: legacy.at || legacy.createdAt || new Date().toISOString()
+          },
+          `legacy-${String(legacy.id || Math.random().toString(36).slice(2))}`
+        );
+      }
+
+      console.log('✅ Initial personal notifications migration completed:', legacyMine.length);
+    } catch (error) {
+      console.error('❌ Initial personal notifications migration gagal:', error);
+    } finally {
+      notificationMigrationInProgress = false;
+    }
+  }
+
+  async function startNotificationsRealtime(profile, user){
+    if (!user?.uid) return;
+
+    if (notificationsRealtimeUserUid === user.uid && unsubscribeNotificationsRealtime) {
+      return notificationsRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeNotificationsRealtime === 'function') {
+      unsubscribeNotificationsRealtime();
+      unsubscribeNotificationsRealtime = null;
+    }
+
+    notificationsRealtimeUserUid = user.uid;
+    notificationMigrationInProgress = false;
+    notificationRealtimeInitialized = false;
+    currentUserUid = user.uid;
+
+    notificationsRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      unsubscribeNotificationsRealtime = subscribeToNotifications(
+        user.uid,
+        async remoteNotifications => {
+          try {
+            const previousIds = new Set(
+              notifications.map(notification => String(notification.id))
+            );
+
+            const normalized = remoteNotifications
+              .map(notification => ({
+                ...notification,
+                id: String(notification.id),
+                userId: currentRole,
+                type: notification.type || 'message',
+                priority: notification.priority || (notification.type === 'mention' ? 'high' : 'normal'),
+                title: notification.title || 'Notification',
+                body: notification.body || '',
+                taskId: notification.taskId == null ? null : String(notification.taskId),
+                commentId: notification.commentId == null ? null : String(notification.commentId),
+                read: notification.read === true,
+                at: notification.at || notification.createdAt || new Date().toISOString()
+              }))
+              .sort((a, b) => new Date(b.at) - new Date(a.at));
+
+            const isInitialSnapshot = !notificationRealtimeInitialized;
+            notifications = normalized.slice(0, 3000);
+            saveNotifications();
+
+            console.log('🔔 Realtime personal notifications synced:', notifications.length);
+
+            if (isInitialSnapshot) {
+              notificationRealtimeInitialized = true;
+              if (!notificationMigrationInProgress && remoteNotifications.length === 0) {
+                await migrateLegacyNotificationsIfNeeded(profile, user);
+              }
+            } else {
+              const fresh = notifications
+                .filter(notification => !previousIds.has(String(notification.id)) && !notification.read)
+                .sort((a, b) => new Date(a.at) - new Date(b.at));
+
+              const latest = fresh[fresh.length - 1];
+              if (latest) {
+                maybeToastLatestNotification();
+
+                if (notificationSettings()[latest.type === 'mention' ? 'mention' : 'chat'] ?? true) {
+                  sendBrowserNotification(
+                    latest.title,
+                    latest.body,
+                    `notification-${latest.id}`
+                  );
+                }
+              }
+            }
+
+            renderNotifications();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error('❌ Pemrosesan realtime personal notifications gagal:', error);
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error('❌ Realtime personal notification listener error:', error);
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return notificationsRealtimeReadyPromise;
+  }
+
+  function stopNotificationsRealtime(){
+    if (typeof unsubscribeNotificationsRealtime === 'function') {
+      unsubscribeNotificationsRealtime();
+    }
+    unsubscribeNotificationsRealtime = null;
+    notificationsRealtimeUserUid = null;
+    notificationsRealtimeReadyPromise = Promise.resolve();
+    notificationRealtimeInitialized = false;
+  }
+
   async function migrateLegacyCommentsIfNeeded(profile, user){
     if (commentsMigrationChecked || !user?.uid || profile?.accessLevel !== 'all') return;
     if (commentsMigrationInProgress) return;
@@ -3144,7 +3302,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   function showNotificationToast(n){
     const wrap = document.getElementById('notificationToastWrap');
     if (!wrap) return;
-    const highPriority = n.type === 'assigned';
+    const highPriority = n.priority === 'high' || n.type === 'mention';
     const toast = document.createElement('div');
     toast.className = `notification-toast ${highPriority ? 'high-priority' : ''}`;
     toast.innerHTML = `
@@ -3152,7 +3310,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
       <div>
         <div class="notification-toast-title">${escapeHtml(n.title)}</div>
         <div class="notification-toast-body">${escapeHtml(n.body)}</div>
-        ${highPriority ? '<span class="notification-toast-priority">HIGH PRIORITY • NEW TASK</span>' : ''}
+        ${highPriority ? '<span class="notification-toast-priority">HIGH PRIORITY • MENTION</span>' : ''}
       </div>
       <button class="notification-toast-close" aria-label="Dismiss notification">×</button>`;
     wrap.appendChild(toast);
@@ -3173,60 +3331,83 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
   function maybeToastLatestNotification(){
     if (!notifications.length) return;
-    const mine = notifications.filter(n => n.userId === currentRole && !n.read).sort((a,b) => new Date(b.at) - new Date(a.at));
+    const mine = notifications
+      .filter(n => !n.read)
+      .sort((a,b) => new Date(b.at) - new Date(a.at));
     if (!mine.length) return;
+
     let toasted = [];
     try { toasted = JSON.parse(sessionStorage.getItem('taskboard_toasted_notifications_v1') || '[]'); } catch(e) {}
+
     const candidate = mine.find(n => !toasted.includes(String(n.id)));
     if (!candidate) return;
+
     toasted.push(String(candidate.id));
     if (toasted.length > 200) toasted = toasted.slice(-200);
-    try { sessionStorage.setItem('taskboard_toasted_notifications_v1', JSON.stringify(toasted)); } catch(e) {}
+
+    try {
+      sessionStorage.setItem(
+        'taskboard_toasted_notifications_v1',
+        JSON.stringify(toasted)
+      );
+    } catch(e) {}
+
     showNotificationToast(candidate);
-    if (candidate.type === 'assigned') playNotificationSound('assigned');
-  }
 
-  function makeNotification(userId, type, title, body, taskId=null){
-    const notification = {
-      id: Date.now() + Math.random(),
-      userId, type, title, body, taskId, read:false, at:new Date().toISOString()
-    };
-    notifications.push(notification);
-    if (notifications.length > 3000) notifications = notifications.slice(-3000);
-    saveNotifications();
-    if (userId === currentRole) {
-  let toasted = [];
-
-  try {
-    toasted = JSON.parse(
-      sessionStorage.getItem('taskboard_toasted_notifications_v1') || '[]'
-    );
-  } catch (e) {}
-
-  toasted.push(String(notification.id));
-
-  if (toasted.length > 200) {
-    toasted = toasted.slice(-200);
-  }
-
-  try {
-    sessionStorage.setItem(
-      'taskboard_toasted_notifications_v1',
-      JSON.stringify(toasted)
-    );
-  } catch (e) {}
-
-  showNotificationToast(notification);
-
-  playNotificationSound(
-    type === 'mention'
-      ? 'mention'
-      : type === 'assigned'
-        ? 'assigned'
+    playNotificationSound(
+      candidate.type === 'mention'
+        ? 'mention'
         : 'message'
-  );
+    );
   }
-}
+
+  function makeNotification(userId, type, title, body, taskId=null, options={}){
+    // Stage 6 personal notifications are now Firestore-backed.
+    // Cross-user notifications are created atomically with their source event
+    // (comments in this stage). This local helper remains only for self-generated
+    // deadline/legacy notifications and UI compatibility with existing code paths.
+    if (String(userId) !== String(currentRole)) return;
+
+    const now = new Date().toISOString();
+    const notification = {
+      id: options.id || `self-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      userId: currentRole,
+      recipientUid: currentUserUid || auth.currentUser?.uid || null,
+      recipientMemberId: currentRole,
+      type,
+      priority: options.priority || (type === 'mention' ? 'high' : 'normal'),
+      title,
+      body,
+      taskId: taskId == null ? null : String(taskId),
+      commentId: options.commentId == null ? null : String(options.commentId),
+      sourceType: options.sourceType || (type === 'deadline' || type === 'overdue' ? 'deadline' : 'self'),
+      sourceId: options.sourceId == null ? (taskId == null ? null : String(taskId)) : String(options.sourceId),
+      actorUid: currentUserUid || auth.currentUser?.uid || null,
+      actorMemberId: currentRole,
+      actorName: actorName(),
+      read: false,
+      at: now,
+      createdAt: now,
+      legacy: false
+    };
+
+    notifications = [notification, ...notifications.filter(n => String(n.id) !== String(notification.id))].slice(0, 3000);
+    saveNotifications();
+    renderNotifications();
+
+    const persistableSelfTypes = new Set(['deadline', 'overdue']);
+    if (currentUserUid && persistableSelfTypes.has(type)) {
+      addNotificationForUser(currentUserUid, notification, notification.id)
+        .catch(error => console.error('❌ Personal notification gagal disimpan:', error));
+    }
+
+    maybeToastLatestNotification();
+
+    if (window.Notification?.permission === 'granted' && persistableSelfTypes.has(type)) {
+      sendBrowserNotification(title, body, `notification-${notification.id}`);
+    }
+  }
+
   function usersMentioned(text){
     const lower = String(text || '').toLowerCase();
     const mentioned = members.filter(m => lower.includes(`@${m.name.toLowerCase()}`));
@@ -3507,7 +3688,7 @@ roleTag.className =
     const review=mine.filter(t=>t.status==='review').length;
     const overdue=mine.filter(isOverdue).length;
     const dueToday=mine.filter(t=>t.status!=='done'&&t.due&&daysUntilDue(t)===0).length;
-    const name=isAdmin()?'Admin':(memberOf(currentRole)?.name||'there');
+    const name=currentUserProfile?.username || memberOf(currentRole)?.name || 'there';
     box.style.display='flex';
     box.innerHTML=`<div class="mts-copy"><strong>${escapeHtml(name)}’s workspace</strong><span>Only tasks assigned to you or supported by you are shown.</span></div><div class="mts-stats"><div class="mts-stat"><strong>${active}</strong><span>Active</span></div><div class="mts-stat"><strong>${review}</strong><span>In Review</span></div><div class="mts-stat ${overdue?'danger':''}"><strong>${overdue}</strong><span>Overdue</span></div><div class="mts-stat"><strong>${dueToday}</strong><span>Due today</span></div></div>`;
   }
@@ -3841,7 +4022,7 @@ function formatDate(str){
     const rate = total ? Math.round(done / total * 100) : 0;
     const attentionTotal = overdue + dueToday + review;
     const currentMember = members.find(m => m.id === currentRole);
-    const displayName = isAdmin() ? 'Admin' : (currentMember?.name || 'there');
+    const displayName = currentUserProfile?.username || currentMember?.name || 'there';
     const todayText = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
     const statusTotal = Math.max(1,total);
     const statusRows = [
@@ -3906,14 +4087,63 @@ function renderSummary(){
   }
 
   function notificationCategory(type){ if(type==='mention') return 'mentions'; if(type==='deadline'||type==='overdue') return 'deadlines'; if(type==='assigned') return 'tasks'; if(type==='review'||type==='changes') return 'reviews'; return 'messages'; }
+  function notificationCategory(type){
+    if(type==='mention') return 'mentions';
+    if(type==='deadline'||type==='overdue') return 'deadlines';
+    if(type==='assigned') return 'tasks';
+    if(type==='review'||type==='changes') return 'reviews';
+    return 'messages';
+  }
+
   function renderNotifications(){
-    maybeToastLatestNotification();
-    const list=document.getElementById('notificationList'), badge=document.getElementById('notificationCount');
-    const mine=notifications.filter(n=>n.userId===currentRole).sort((a,b)=>new Date(b.at)-new Date(a.at));
-    const unread=mine.filter(n=>!n.read).length; badge.textContent=unread>99?'99+':unread; badge.style.display=unread?'flex':'none';
-    const filtered=notificationFilter==='all'?mine:mine.filter(n=>notificationCategory(n.type)===notificationFilter);
-    list.innerHTML=filtered.length?filtered.map(n=>`<button class="notification-item ${n.read?'':'unread'} ${n.type==='assigned'?'notification-high-priority':''}" data-notification-id="${n.id}"><div class="notification-title">${escapeHtml(n.title)}</div><div class="notification-body">${escapeHtml(n.body)}</div><span class="notification-time">${relativeTime(n.at)}</span></button>`).join(''):'<div class="notification-empty">No notifications in this category.</div>';
-    list.querySelectorAll('[data-notification-id]').forEach(btn=>btn.addEventListener('click',()=>{ const n=notifications.find(x=>String(x.id)===btn.dataset.notificationId); if(!n)return; n.read=true; saveNotifications(); document.getElementById('notificationPanel').classList.remove('open'); if(n.taskId) openDetail(n.taskId); else renderNotifications(); }));
+    const list=document.getElementById('notificationList');
+    const badge=document.getElementById('notificationCount');
+    if(!list || !badge) return;
+
+    const mine=notifications
+      .slice()
+      .sort((a,b)=>new Date(b.at)-new Date(a.at));
+
+    const unread=mine.filter(n=>!n.read).length;
+    badge.textContent=unread>99?'99+':unread;
+    badge.style.display=unread?'flex':'none';
+
+    const filtered=notificationFilter==='all'
+      ? mine
+      : mine.filter(n=>notificationCategory(n.type)===notificationFilter);
+
+    list.innerHTML=filtered.length
+      ? filtered.map(n=>`
+          <button
+            class="notification-item ${n.read?'':'unread'} ${(n.priority==='high'||n.type==='mention')?'notification-high-priority':''}"
+            data-notification-id="${escapeHtml(n.id)}"
+          >
+            <div class="notification-title">${escapeHtml(n.title)}</div>
+            <div class="notification-body">${escapeHtml(n.body)}</div>
+            <span class="notification-time">${relativeTime(n.at)}</span>
+          </button>
+        `).join('')
+      : '<div class="notification-empty">No notifications in this category.</div>';
+
+    list.querySelectorAll('[data-notification-id]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const id=btn.dataset.notificationId;
+      const n=notifications.find(x=>String(x.id)===String(id));
+      if(!n)return;
+
+      try {
+        if (!n.read && currentUserUid) {
+          await markNotificationRead(currentUserUid, n.id);
+        }
+      } catch(error) {
+        console.error('❌ Mark notification read gagal:', error);
+      }
+
+      n.read=true;
+      saveNotifications();
+      document.getElementById('notificationPanel').classList.remove('open');
+      if(n.taskId) openDetail(n.taskId);
+      else renderNotifications();
+    }));
   }
 
   function renderAll(){
@@ -4395,6 +4625,74 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     box.querySelectorAll('.mention-option').forEach((el,i)=>el.classList.toggle('active', i===mentionState.index));
   }
 
+  function buildCommentNotificationRequests(task, comment, mentionedTargets){
+    const recipients = new Map();
+
+    const priorityRank = { normal: 1, high: 2 };
+
+    const addRecipient = (memberId, type, priority, title, body) => {
+      const normalizedMemberId = String(memberId || '');
+      if (!normalizedMemberId || normalizedMemberId === String(currentRole)) return;
+
+      const member = members.find(m => String(m.id) === normalizedMemberId);
+      const recipientUid = member?.authUid || null;
+      if (!recipientUid) return;
+
+      const existing = recipients.get(String(recipientUid));
+      const next = {
+        recipientUid: String(recipientUid),
+        recipientMemberId: normalizedMemberId,
+        type,
+        priority,
+        title,
+        body
+      };
+
+      if (!existing || priorityRank[priority] > priorityRank[existing.priority]) {
+        recipients.set(String(recipientUid), next);
+      }
+    };
+
+    // Mention takes priority over every other notification for the same user.
+    mentionedTargets.forEach(target => {
+      addRecipient(
+        target.id,
+        'mention',
+        'high',
+        `${comment.authorName} mentioned you`,
+        `In ${task.title}: ${comment.text.slice(0, 180)}`
+      );
+    });
+
+    // Reply notification goes to the original comment author.
+    if (comment.replyToId) {
+      const parent = messages.find(m => String(m.id) === String(comment.replyToId));
+      if (parent?.authorId) {
+        addRecipient(
+          parent.authorId,
+          'reply',
+          'normal',
+          `${comment.authorName} replied to your comment`,
+          `In ${task.title}: ${comment.text.slice(0, 180)}`
+        );
+      }
+    }
+
+    // A normal comment notifies the current task PIC, unless that user
+    // already receives a higher-priority mention/reply notification.
+    if (notificationSettings().chat && task.assignee) {
+      addRecipient(
+        task.assignee,
+        'message',
+        'normal',
+        `${comment.authorName} commented on your task`,
+        `${task.title}: ${comment.text.slice(0, 180)}`
+      );
+    }
+
+    return [...recipients.values()];
+  }
+
   document.getElementById('sendChatBtn').addEventListener('click', async () => {
     const task = tasks.find(t => t.id === currentDetailId);
     const input = document.getElementById('chatInput');
@@ -4428,8 +4726,10 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       sendButton.textContent = 'Sending…';
     }
 
+    const notificationRequests = buildCommentNotificationRequests(task, comment, mentionedTargets);
+
     try {
-      await addComment(comment);
+      await addCommentWithNotifications(comment, notificationRequests);
 
       // onSnapshot will update the discussion state and render it.
       input.value = '';
@@ -4940,7 +5240,18 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   }
   document.getElementById('notifyBtn').addEventListener('click', (e) => { e.stopPropagation(); notificationPanel.classList.toggle('open'); renderNotifications(); });
   document.querySelectorAll('[data-notification-filter]').forEach(btn=>btn.addEventListener('click',()=>{ notificationFilter=btn.dataset.notificationFilter; document.querySelectorAll('[data-notification-filter]').forEach(x=>x.classList.toggle('active',x===btn)); renderNotifications(); }));
-  document.getElementById('markAllReadBtn').addEventListener('click', () => { notifications.filter(n => n.userId === currentRole).forEach(n => n.read = true); saveNotifications(); renderNotifications(); });
+  document.getElementById('markAllReadBtn').addEventListener('click', async () => {
+    try {
+      if (currentUserUid) {
+        await markAllNotificationsRead(currentUserUid, notifications.filter(n => !n.read));
+      }
+      notifications.filter(n => !n.read).forEach(n => n.read = true);
+      saveNotifications();
+      renderNotifications();
+    } catch (error) {
+      console.error('❌ Mark all notifications read gagal:', error);
+    }
+  });
   document.getElementById('notificationSettingsBtn').addEventListener('click', () => { refreshNotificationStatus(); notificationPanel.classList.remove('open'); notificationOverlay.classList.add('open'); });
   document.getElementById('closeNotificationsBtn').addEventListener('click', () => { notificationOverlay.classList.remove('open'); saveNotifications(); renderNotifications(); });
   document.getElementById('enableNotificationsBtn').addEventListener('click', async () => {
@@ -5649,6 +5960,7 @@ await startMembersRealtime(profile, user);
 startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
 await startActivitiesRealtime(profile, user);
+await startNotificationsRealtime(profile, user);
 enterWorkspace();
 
   }catch(error){
@@ -6104,6 +6416,7 @@ onAuthStateChanged(auth, async (user) => {
     startProductsRealtime(profile, user);
     await startTasksRealtime(profile, user);
     await startActivitiesRealtime(profile, user);
+    await startNotificationsRealtime(profile, user);
 
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
@@ -6166,8 +6479,10 @@ enterWorkspace();
   });
   document.getElementById('welcomePassword')?.addEventListener('keydown',e=>{if(e.key==='Enter')enterWorkspace();});
   document.getElementById('welcomeEmail')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('welcomePassword')?.focus();});
-  document.getElementById('signOutBtn')?.addEventListener('click',()=>{
+  document.getElementById('signOutBtn')?.addEventListener('click',async ()=>{
     document.getElementById('notificationPanel')?.classList.remove('open');
+    stopNotificationsRealtime();
+    currentUserUid = null;
     document.querySelectorAll('.overlay.open').forEach(el=>el.classList.remove('open'));
     dashboardMode=true; activeDepartmenton='all'; activeProduct=null; myTasksOnly=false; archiveMode=false; viewMode='board';
     showWelcome();
