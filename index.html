@@ -1879,7 +1879,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <div class="my-tasks-summary" id="myTasksSummary" style="display:none;"></div><div class="bulk-actions-bar" id="bulkActionsBar" style="display:none;"></div>
 <div class="board" id="board"></div>
 <div class="note">
-      Prototype v2.7 — data is stored locally in this browser. Export/Import can move data between devices; real-time collaboration requires a shared backend and real authentication.
+      Prototype v2.8 — shared workspace data is synchronized through Firebase Firestore in real time. Export/Import remains available for data portability.
     </div>
 </div>
 </div>
@@ -2236,6 +2236,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   seedProductGroupIfMissing,
   subscribeToActivities,
   addActivity,
+  subscribeToComments,
+  getAllComments,
+  addComment,
   getTasks,
   subscribeToTasks,
   addTask,
@@ -2406,6 +2409,12 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let activitiesRealtimeUserUid = null;
   let activitiesRealtimeReadyPromise = Promise.resolve();
   let activityMigrationInProgress = false;
+  let unsubscribeCommentsRealtime = null;
+  let commentsRealtimeUserUid = null;
+  let commentsRealtimeTaskId = null;
+  let commentsRealtimeReadyPromise = Promise.resolve();
+  let commentsMigrationChecked = false;
+  let commentsMigrationInProgress = false;
 
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
 
@@ -2909,10 +2918,152 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return activitiesRealtimeReadyPromise;
   }
 
+  async function migrateLegacyCommentsIfNeeded(profile, user){
+    if (commentsMigrationChecked || !user?.uid || profile?.accessLevel !== 'all') return;
+    if (commentsMigrationInProgress) return;
+
+    commentsMigrationInProgress = true;
+
+    try {
+      const remoteComments = await getAllComments();
+
+      if (remoteComments.length > 0 || messages.length === 0) {
+        commentsMigrationChecked = true;
+        return;
+      }
+
+      console.log('⏳ Firestore comments kosong. Memulai initial migration...');
+
+      const legacyIdMap = new Map(
+        messages.map(message => [
+          String(message.id),
+          `legacy-comment-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+        ])
+      );
+
+      for (const message of messages) {
+        const oldId = String(message.id);
+        const comment = {
+          id: legacyIdMap.get(oldId),
+          taskId: String(message.taskId || ''),
+          authorId: String(message.authorId || 'unknown'),
+          authorName: message.authorName || 'Unknown',
+          authorUid: null,
+          text: String(message.text || ''),
+          at: message.at || new Date().toISOString(),
+          createdAt: message.at || new Date().toISOString(),
+          replyToId: message.replyToId ? (legacyIdMap.get(String(message.replyToId)) || null) : null,
+          mentions: Array.isArray(message.mentions) ? message.mentions.map(String) : [],
+          legacy: true,
+          migratedFromLocal: true,
+          migratedByUid: user.uid
+        };
+
+        if (!comment.taskId || !comment.text) continue;
+        await addComment(comment);
+      }
+
+      console.log('✅ Initial comments migration completed:', messages.length);
+      commentsMigrationChecked = true;
+    } catch (migrationError) {
+      console.error('❌ Initial comments migration gagal:', migrationError);
+      // Leave checked=false so a later admin session can retry if needed.
+    } finally {
+      commentsMigrationInProgress = false;
+    }
+  }
+
+  async function startCommentsRealtime(profile, user, taskId){
+    if (!user?.uid || !taskId) return Promise.resolve();
+
+    const normalizedTaskId = String(taskId);
+
+    if (commentsRealtimeUserUid === user.uid && commentsRealtimeTaskId === normalizedTaskId && unsubscribeCommentsRealtime) {
+      return commentsRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeCommentsRealtime === 'function') {
+      unsubscribeCommentsRealtime();
+      unsubscribeCommentsRealtime = null;
+    }
+
+    commentsRealtimeUserUid = user.uid;
+    commentsRealtimeTaskId = normalizedTaskId;
+
+    // One-time compatibility migration: preserve legacy local discussions when
+    // the new shared comments collection is still empty.
+    await migrateLegacyCommentsIfNeeded(profile, user);
+
+    commentsRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      unsubscribeCommentsRealtime = subscribeToComments(
+        normalizedTaskId,
+        remoteComments => {
+          try {
+            const normalized = remoteComments.map(comment => ({
+              ...comment,
+              id: String(comment.id),
+              taskId: String(comment.taskId || normalizedTaskId),
+              authorId: String(comment.authorId || ''),
+              authorName: comment.authorName || 'Unknown',
+              authorUid: comment.authorUid || null,
+              text: String(comment.text || ''),
+              at: comment.at || comment.createdAt || new Date().toISOString(),
+              replyToId: comment.replyToId ? String(comment.replyToId) : null,
+              mentions: Array.isArray(comment.mentions) ? comment.mentions.map(String) : []
+            }));
+
+            // Keep the cache for legacy export/count compatibility while the
+            // active task gets its authoritative realtime data from Firestore.
+            const otherTaskMessages = messages.filter(m => String(m.taskId) !== normalizedTaskId);
+            messages = [...otherTaskMessages, ...normalized];
+            saveMessages();
+
+            console.log('🔄 Realtime comments synced:', normalized.length, 'for', normalizedTaskId);
+
+            if (String(currentDetailId) === normalizedTaskId && detailOverlay?.classList.contains('open')) {
+              renderChat(normalizedTaskId);
+            }
+
+            renderAll();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error('❌ Pemrosesan realtime comments gagal:', error);
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error('❌ Realtime comment listener error:', error);
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return commentsRealtimeReadyPromise;
+  }
+
+  function stopCommentsRealtime(){
+    if (typeof unsubscribeCommentsRealtime === 'function') {
+      unsubscribeCommentsRealtime();
+    }
+    unsubscribeCommentsRealtime = null;
+    commentsRealtimeTaskId = null;
+    commentsRealtimeReadyPromise = Promise.resolve();
+  }
+
   // Firestore is the source of truth for shared activity history.
   // localStorage is retained only as a cache/fallback while the listener connects.
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
   function saveMessages(){ localStorage.setItem('taskboard_messages_v1', JSON.stringify(messages)); }
+
   function saveNotifications(){ localStorage.setItem('taskboard_notifications_v1', JSON.stringify(notifications)); }
 
   // Shared product state lives in Firestore; localStorage is only a cache.
@@ -3090,13 +3241,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     });
     return safe;
   }
-  function actorName(){
-  return (
-    currentUserProfile?.username ||
-    memberOf(currentRole)?.name ||
-    'there'
-  );
-}
+  function actorName(){ return currentUserProfile?.username || memberOf(currentRole)?.name || 'User'; }
   function logActivity(taskId, action, detail){
     const activity = {
       taskId: taskId == null ? null : String(taskId),
@@ -3362,10 +3507,7 @@ roleTag.className =
     const review=mine.filter(t=>t.status==='review').length;
     const overdue=mine.filter(isOverdue).length;
     const dueToday=mine.filter(t=>t.status!=='done'&&t.due&&daysUntilDue(t)===0).length;
-    const name =
-  currentUserProfile?.username ||
-  memberOf(currentRole)?.name ||
-  'there';
+    const name=isAdmin()?'Admin':(memberOf(currentRole)?.name||'there');
     box.style.display='flex';
     box.innerHTML=`<div class="mts-copy"><strong>${escapeHtml(name)}’s workspace</strong><span>Only tasks assigned to you or supported by you are shown.</span></div><div class="mts-stats"><div class="mts-stat"><strong>${active}</strong><span>Active</span></div><div class="mts-stat"><strong>${review}</strong><span>In Review</span></div><div class="mts-stat ${overdue?'danger':''}"><strong>${overdue}</strong><span>Overdue</span></div><div class="mts-stat"><strong>${dueToday}</strong><span>Due today</span></div></div>`;
   }
@@ -3699,10 +3841,7 @@ function formatDate(str){
     const rate = total ? Math.round(done / total * 100) : 0;
     const attentionTotal = overdue + dueToday + review;
     const currentMember = members.find(m => m.id === currentRole);
-const displayName =
-  currentUserProfile?.username ||
-  currentMember?.name ||
-  'there';
+    const displayName = isAdmin() ? 'Admin' : (currentMember?.name || 'there');
     const todayText = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
     const statusTotal = Math.max(1,total);
     const statusRows = [
@@ -3787,6 +3926,12 @@ function renderSummary(){
 
   // ---- detail modal ----
   const detailOverlay = document.getElementById('detailOverlay');
+  function closeDetail(){
+    stopCommentsRealtime();
+    detailOverlay?.classList.remove('open');
+    currentDetailId = null;
+    cancelReply();
+  }
   let currentDetailId = null;
 
   function canAdvance(task){
@@ -3844,11 +3989,18 @@ function renderSummary(){
   function renderChat(taskId){
     const box = document.getElementById('chatList');
     if (!box) return;
-    const taskMessages = messages.filter(m => m.taskId === taskId).sort((a,b) => new Date(a.at) - new Date(b.at));
+
+    const wasEmpty = !box.innerHTML.trim();
+    const wasNearBottom = wasEmpty || (box.scrollHeight - box.scrollTop - box.clientHeight < 40);
+    const taskMessages = messages.filter(m => String(m.taskId) === String(taskId)).sort((a,b) => new Date(a.at) - new Date(b.at));
     const byParent = new Map();
     taskMessages.forEach(m => { const key = m.replyToId || null; if(!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(m); });
     const renderMessage = (m, isReply=false) => {
-      const person = m.authorId === '__admin__' ? {name:'Admin', color:'#344054'} : memberOf(m.authorId);
+      const member = m.authorId === '__admin__' ? {name:'Admin', color:'#344054'} : memberOf(m.authorId);
+      const person = {
+        ...member,
+        name: m.authorName || member.name || 'Unknown'
+      };
       const replyTarget = m.replyToId ? taskMessages.find(x => x.id === m.replyToId) : null;
       const replyPreview = replyTarget ? `<div class="reply-context"><span>Replying to ${escapeHtml(replyTarget.authorName || memberOf(replyTarget.authorId).name)}</span><small>${escapeHtml(replyTarget.text).slice(0,120)}</small></div>` : '';
       return `<div class="chat-message ${isReply?'reply':''}" data-message-id="${m.id}">
@@ -3869,9 +4021,8 @@ function renderSummary(){
     const orphanReplies = taskMessages.filter(m => m.replyToId && !taskMessages.some(x => x.id===m.replyToId));
     orphanReplies.forEach(m=> rendered += renderMessage(m,true));
     box.innerHTML = rendered || '<div class="chat-empty">No messages yet. Start the discussion for this task.</div>';
-    box.scrollTop = box.scrollHeight;
-    hideMentionSuggestions();
-    box.querySelectorAll('[data-reply-id]').forEach(btn=>btn.addEventListener('click',()=>startReply(Number(btn.dataset.replyId))));
+    if (wasNearBottom) box.scrollTop = box.scrollHeight;
+    box.querySelectorAll('[data-reply-id]').forEach(btn=>btn.addEventListener('click',()=>startReply(btn.dataset.replyId)));
   }
 
   function startReply(messageId){
@@ -4004,6 +4155,7 @@ function renderSummary(){
     renderAttachments(task);
     renderStatusTimeline(task);
     renderChat(task.id);
+    startCommentsRealtime(currentUserProfile, auth.currentUser, task.id);
 
     const actionBtn = document.getElementById('statusActionBtn');
     const noteBox = document.getElementById('permissionNote');
@@ -4098,7 +4250,7 @@ function renderSummary(){
         if (targetId) makeNotification(targetId, 'review', 'Task completed', `${task.title} was marked as done.`, task.id);
       }
       save();
-      detailOverlay.classList.remove('open');
+      closeDetail();
       renderAll();
     } catch(error) {
       console.error('❌ Status action gagal:', error);
@@ -4133,7 +4285,7 @@ function renderSummary(){
           const targetId = task.assignee !== currentRole ? task.assignee : (task.createdBy && task.createdBy !== currentRole ? task.createdBy : null);
           if (targetId) makeNotification(targetId, 'changes', 'Changes requested', `${task.title} needs another revision.`, task.id);
           save();
-          detailOverlay.classList.remove('open');
+          closeDetail();
           renderAll();
         } catch(error) {
           console.error('❌ Request changes gagal:', error);
@@ -4153,7 +4305,7 @@ function renderSummary(){
       Object.assign(task, updatedTask);
       logActivity(task.id,nextArchived?'archive':'unarchive',nextArchived?'Task archived':'Task restored to active board');
       save();
-      detailOverlay.classList.remove('open');
+      closeDetail();
       renderAll();
     } catch(error) {
       console.error('❌ Archive update gagal:', error);
@@ -4196,7 +4348,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           tasks = tasks.filter(t => t.id !== currentDetailId);
           save();
           renderRecentActivity();
-          detailOverlay.classList.remove('open');
+          closeDetail();
           renderAll();
         } catch(error) {
           console.error('❌ Delete task gagal:', error);
@@ -4206,7 +4358,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     });
   });
 
-  detailOverlay.addEventListener('click', (e) => { if (e.target === detailOverlay) detailOverlay.classList.remove('open'); });
+  detailOverlay.addEventListener('click', (e) => { if (e.target === detailOverlay) closeDetail(); });
 
   const calendarOverlay = document.getElementById('calendarOverlay');
   document.getElementById('calendarBtn').addEventListener('click', () => { const task = tasks.find(t => t.id === currentDetailId); if (task) openGoogleTaskHandoff(task); });
@@ -4243,34 +4395,55 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     box.querySelectorAll('.mention-option').forEach((el,i)=>el.classList.toggle('active', i===mentionState.index));
   }
 
-  document.getElementById('sendChatBtn').addEventListener('click', () => {
+  document.getElementById('sendChatBtn').addEventListener('click', async () => {
     const task = tasks.find(t => t.id === currentDetailId);
     const input = document.getElementById('chatInput');
-    const text = input.value.trim();
-    if (!task || !text) return;
+    const text = input?.value.trim();
+    const user = auth.currentUser;
+
+    if (!task || !text || !user?.uid) return;
+
     const authorName = actorName();
-    const msg = { id: Date.now() + Math.random(), taskId: task.id, authorId: currentRole === 'admin' ? '__admin__' : currentRole, authorName, text, at:new Date().toISOString(), replyToId: replyTargetId || null };
-    messages.push(msg);
-    saveMessages();
-    if (document.getElementById('mentionNotify')?.checked !== false) usersMentioned(text).forEach(target => {
-      if (target.id !== currentRole) {
-        makeNotification(target.id, 'mention', `${authorName} mentioned you`, `${authorName}: ${text}`, task.id);
-      }
-    });
-    if(replyTargetId){
-      const target = messages.find(m=>m.id===replyTargetId);
-      if(target && target.authorId !== (currentRole==='admin'?'__admin__':currentRole)){
-        makeNotification(target.authorId==='__admin__'?'admin':target.authorId, 'message', `${authorName} replied to you`, `${authorName}: ${text}`, task.id);
-      }
-    } else if(task.assignee !== currentRole && task.assignee){
-      if (document.getElementById('chatNotify')?.checked !== false) {
-        makeNotification(task.assignee, 'message', `New message in ${task.title}`, `${authorName}: ${text}`, task.id);
+    const authorId = currentRole;
+    const mentionedTargets = usersMentioned(text);
+    const mentionIds = mentionedTargets
+      .filter(target => target?.id && target.id !== authorId && target.id !== 'admin')
+      .map(target => String(target.id));
+
+    const comment = {
+      taskId: String(task.id),
+      authorId,
+      authorName,
+      authorUid: user.uid,
+      text,
+      at: new Date().toISOString(),
+      replyToId: replyTargetId ? String(replyTargetId) : null,
+      mentions: [...new Set(mentionIds)],
+      legacy: false
+    };
+
+    const sendButton = document.getElementById('sendChatBtn');
+    if (sendButton) {
+      sendButton.disabled = true;
+      sendButton.textContent = 'Sending…';
+    }
+
+    try {
+      await addComment(comment);
+
+      // onSnapshot will update the discussion state and render it.
+      input.value = '';
+      cancelReply();
+      hideMentionSuggestions();
+    } catch (error) {
+      console.error('❌ Comment gagal disimpan ke Firestore:', error);
+      alert('Komentar gagal dikirim. Periksa koneksi atau Firebase Rules.');
+    } finally {
+      if (sendButton) {
+        sendButton.disabled = false;
+        sendButton.textContent = 'Send';
       }
     }
-    input.value = '';
-    cancelReply();
-    renderChat(task.id);
-    renderNotifications();
   });
 
   document.getElementById('cancelReplyBtn').addEventListener('click', cancelReply);
@@ -4473,7 +4646,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     document.getElementById('fImagePreviewBox').innerHTML = task.image
       ? `<img src="${task.image}" style="max-width:100%; border-radius:6px; border:1px solid var(--line);">`
       : '';
-    detailOverlay.classList.remove('open');
+    closeDetail();
     overlay.classList.add('open');
   });
 
@@ -6401,7 +6574,7 @@ body{overflow:auto!important}
 }
 
 /* ===== v2.11 dashboard simplification ===== */
-.dashboard-compact{max-width:1450px;margin:0 auto;padding-bottom:.2rem}.dashboard-hero-compact{margin-bottom:.72rem!important;padding:1rem 1.15rem!important;min-height:112px!important}.dashboard-hero-compact .dashboard-hero-main{min-width:0}.dashboard-hero-compact h3{font-size:1.34rem!important;margin:.2rem 0 .26rem!important}.dashboard-hero-compact p{font-size:.72rem!important;max-width:720px!important}.dashboard-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin-bottom:.65rem}.dashboard-kpi-grid .dashboard-stat{min-height:88px;padding:.75rem .8rem!important;border-radius:15px!important}.dashboard-kpi-grid .dashboard-stat strong{font-size:1.5rem!important;margin:.1rem 0!important}.dashboard-kpi-grid .dashboard-stat small{font-size:.58rem!important}.dashboard-status-panel{margin-bottom:.65rem}.dash-status-list{display:flex;flex-direction:column;gap:.52rem}.dash-status-row{display:grid;grid-template-columns:minmax(160px,1.1fr) 2.8fr 42px;align-items:center;gap:.6rem}.dash-status-label{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-status-label strong{font-size:.68rem;font-weight:650}.dash-status-label b{margin-left:auto;font-size:.68rem;color:var(--ink)}.dash-status-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-status-track,.dash-dept-track,.dash-work-track{height:7px;background:#E9EEEC;border-radius:999px;overflow:hidden}.dash-status-track span,.dash-dept-track span,.dash-work-track span{display:block;height:100%;border-radius:999px}.dash-status-row>small{font-size:.6rem;color:var(--ink-soft);text-align:right}.dashboard-two-col{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);gap:.65rem;margin-bottom:.65rem}.dashboard-two-col .dashboard-panel,.dashboard-bottom-grid .dashboard-panel{min-width:0}.dash-dept-list,.dash-work-list{display:flex;flex-direction:column;gap:.55rem}.dash-dept-row{display:grid;grid-template-columns:minmax(185px,1.4fr) minmax(110px,1fr) 42px;align-items:center;gap:.65rem}.dash-dept-name{display:flex;align-items:center;gap:.42rem;min-width:0}.dash-dept-name>div{min-width:0}.dash-dept-name strong{display:block;font-size:.67rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-name small{display:block;margin-top:.1rem;font-size:.57rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-dept-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-work-row{display:grid;grid-template-columns:105px minmax(110px,1fr) 30px;align-items:center;gap:.55rem}.dash-work-person{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-work-person strong{font-size:.63rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-work-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-attention-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.dash-attention-item{display:flex;align-items:center;gap:.45rem;padding:.58rem .62rem;border-radius:10px;background:rgba(250,251,251,.72);border:1px solid rgba(31,49,46,.05)}.dash-attention-icon{width:25px;height:25px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.67rem;font-weight:800}.dash-attention-item strong{display:block;font-size:.82rem;line-height:1}.dash-attention-item small{display:block;margin-top:.14rem;font-size:.56rem;color:var(--ink-soft)}.dash-attention-item.danger .dash-attention-icon{background:#FDECEC;color:var(--high)}.dash-attention-item.warning .dash-attention-icon{background:#FFF6DF;color:#996500}.dash-attention-item.review .dash-attention-icon{background:#EDF2FA;color:#3B5BA5}.dashboard-bottom-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:.65rem}.dashboard-activity-panel{margin-top:.65rem}.activity-feed-list{display:flex;flex-direction:column;gap:.3rem;max-height:300px;overflow-y:auto;padding-right:.25rem;scrollbar-width:thin;}.activity-feed-item{width:100%;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:.6rem;border:1px solid transparent;background:var(--surface-soft);border-radius:8px;padding:.58rem .6rem;text-align:left;font-family:inherit;color:var(--ink);cursor:pointer}.activity-feed-item:hover{border-color:var(--line);background:var(--bg)}.activity-feed-icon{width:28px;height:28px;border-radius:8px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--accent)}.activity-feed-copy{min-width:0}.activity-feed-copy strong{display:block;font-size:.7rem;font-weight:600;line-height:1.35}.activity-feed-copy strong span{font-weight:500;color:var(--ink-soft)}.activity-feed-copy small{display:block;margin-top:.12rem;font-size:.63rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.activity-feed-item time{font-size:.61rem;color:var(--ink-soft);white-space:nowrap}.dashboard-link-btn{border:0;background:transparent;color:var(--accent);font:600 .61rem/1 inherit;cursor:pointer;padding:.2rem 0}.dashboard-link-btn:hover{text-decoration:underline}.dash-snapshot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.45rem}.dash-snapshot-grid>div{padding:.55rem .4rem;text-align:center;background:rgba(247,249,248,.72);border-radius:10px;border:1px solid rgba(31,49,46,.045)}.dash-snapshot-grid strong{display:block;font-size:.95rem;letter-spacing:-.03em}.dash-snapshot-grid span{display:block;margin-top:.12rem;font-size:.55rem;color:var(--ink-soft)}
+.dashboard-compact{max-width:1450px;margin:0 auto;padding-bottom:.2rem}.dashboard-hero-compact{margin-bottom:.72rem!important;padding:1rem 1.15rem!important;min-height:112px!important}.dashboard-hero-compact .dashboard-hero-main{min-width:0}.dashboard-hero-compact h3{font-size:1.34rem!important;margin:.2rem 0 .26rem!important}.dashboard-hero-compact p{font-size:.72rem!important;max-width:720px!important}.dashboard-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin-bottom:.65rem}.dashboard-kpi-grid .dashboard-stat{min-height:88px;padding:.75rem .8rem!important;border-radius:15px!important}.dashboard-kpi-grid .dashboard-stat strong{font-size:1.5rem!important;margin:.1rem 0!important}.dashboard-kpi-grid .dashboard-stat small{font-size:.58rem!important}.dashboard-status-panel{margin-bottom:.65rem}.dash-status-list{display:flex;flex-direction:column;gap:.52rem}.dash-status-row{display:grid;grid-template-columns:minmax(160px,1.1fr) 2.8fr 42px;align-items:center;gap:.6rem}.dash-status-label{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-status-label strong{font-size:.68rem;font-weight:650}.dash-status-label b{margin-left:auto;font-size:.68rem;color:var(--ink)}.dash-status-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-status-track,.dash-dept-track,.dash-work-track{height:7px;background:#E9EEEC;border-radius:999px;overflow:hidden}.dash-status-track span,.dash-dept-track span,.dash-work-track span{display:block;height:100%;border-radius:999px}.dash-status-row>small{font-size:.6rem;color:var(--ink-soft);text-align:right}.dashboard-two-col{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);gap:.65rem;margin-bottom:.65rem}.dashboard-two-col .dashboard-panel,.dashboard-bottom-grid .dashboard-panel{min-width:0}.dash-dept-list,.dash-work-list{display:flex;flex-direction:column;gap:.55rem}.dash-dept-row{display:grid;grid-template-columns:minmax(185px,1.4fr) minmax(110px,1fr) 42px;align-items:center;gap:.65rem}.dash-dept-name{display:flex;align-items:center;gap:.42rem;min-width:0}.dash-dept-name>div{min-width:0}.dash-dept-name strong{display:block;font-size:.67rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-name small{display:block;margin-top:.1rem;font-size:.57rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-dept-dot{width:7px;height:7px;border-radius:50%;flex:none}.dash-dept-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-work-row{display:grid;grid-template-columns:105px minmax(110px,1fr) 30px;align-items:center;gap:.55rem}.dash-work-person{display:flex;align-items:center;gap:.38rem;min-width:0}.dash-work-person strong{font-size:.63rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dash-work-row>b{font-size:.62rem;color:var(--ink-soft);text-align:right}.dash-attention-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.dash-attention-item{display:flex;align-items:center;gap:.45rem;padding:.58rem .62rem;border-radius:10px;background:rgba(250,251,251,.72);border:1px solid rgba(31,49,46,.05)}.dash-attention-icon{width:25px;height:25px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.67rem;font-weight:800}.dash-attention-item strong{display:block;font-size:.82rem;line-height:1}.dash-attention-item small{display:block;margin-top:.14rem;font-size:.56rem;color:var(--ink-soft)}.dash-attention-item.danger .dash-attention-icon{background:#FDECEC;color:var(--high)}.dash-attention-item.warning .dash-attention-icon{background:#FFF6DF;color:#996500}.dash-attention-item.review .dash-attention-icon{background:#EDF2FA;color:#3B5BA5}.dashboard-bottom-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:.65rem}.dashboard-activity-panel{margin-top:.65rem}.activity-feed-list{display:flex;flex-direction:column;gap:.3rem;max-height:300px;overflow-y:auto;padding-right:.25rem;scrollbar-width:thin}.activity-feed-item{width:100%;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:.6rem;border:1px solid transparent;background:var(--surface-soft);border-radius:8px;padding:.58rem .6rem;text-align:left;font-family:inherit;color:var(--ink);cursor:pointer}.activity-feed-item:hover{border-color:var(--line);background:var(--bg)}.activity-feed-icon{width:28px;height:28px;border-radius:8px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--accent)}.activity-feed-copy{min-width:0}.activity-feed-copy strong{display:block;font-size:.7rem;font-weight:600;line-height:1.35}.activity-feed-copy strong span{font-weight:500;color:var(--ink-soft)}.activity-feed-copy small{display:block;margin-top:.12rem;font-size:.63rem;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.activity-feed-item time{font-size:.61rem;color:var(--ink-soft);white-space:nowrap}.dashboard-link-btn{border:0;background:transparent;color:var(--accent);font:600 .61rem/1 inherit;cursor:pointer;padding:.2rem 0}.dashboard-link-btn:hover{text-decoration:underline}.dash-snapshot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.45rem}.dash-snapshot-grid>div{padding:.55rem .4rem;text-align:center;background:rgba(247,249,248,.72);border-radius:10px;border:1px solid rgba(31,49,46,.045)}.dash-snapshot-grid strong{display:block;font-size:.95rem;letter-spacing:-.03em}.dash-snapshot-grid span{display:block;margin-top:.12rem;font-size:.55rem;color:var(--ink-soft)}
 @media(max-width:950px){.dashboard-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-two-col,.dashboard-bottom-grid{grid-template-columns:1fr}.dash-status-row{grid-template-columns:140px 1fr 38px}}
 @media(max-width:600px){.dashboard-hero-compact{min-height:0!important}.dashboard-hero-compact .dashboard-hero-progress{display:none}.dashboard-kpi-grid{gap:.5rem}.dashboard-two-col,.dashboard-bottom-grid{gap:.5rem}.dash-attention-grid{grid-template-columns:1fr}.dash-snapshot-grid{grid-template-columns:repeat(2,1fr)}.dash-dept-row{grid-template-columns:1fr 42px}.dash-dept-track{grid-column:1/-1}.dash-status-row{grid-template-columns:115px 1fr 34px}}
 </style>

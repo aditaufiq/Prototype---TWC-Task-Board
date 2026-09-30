@@ -22,7 +22,8 @@ import {
   writeBatch,
   query,
   orderBy,
-  limit
+  limit,
+  where
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -257,6 +258,86 @@ async function saveProductGroupAndTasks(divisionId, items, tasks) {
   };
 }
 
+async function getAllComments() {
+  const snapshot = await getDocs(collection(db, "comments"));
+  return snapshot.docs.map(docSnap => ({
+    ...docSnap.data(),
+    id: String(docSnap.id)
+  }));
+}
+
+function subscribeToComments(taskId, onChange, onError) {
+  const normalizedTaskId = String(taskId || '').trim();
+
+  if (!normalizedTaskId) {
+    throw new Error("Task ID komentar tidak boleh kosong.");
+  }
+
+  // Filter by taskId only. We sort client-side to avoid requiring
+  // a composite Firestore index for taskId + createdAt.
+  const commentsQuery = query(
+    collection(db, "comments"),
+    where("taskId", "==", normalizedTaskId)
+  );
+
+  return onSnapshot(
+    commentsQuery,
+    snapshot => {
+      const comments = snapshot.docs
+        .map(docSnap => ({
+          ...docSnap.data(),
+          id: String(docSnap.id),
+          taskId: String(docSnap.data()?.taskId || normalizedTaskId)
+        }))
+        .sort((a, b) => new Date(a.at || a.createdAt || 0) - new Date(b.at || b.createdAt || 0));
+
+      onChange(comments, snapshot);
+    },
+    error => {
+      console.error("Realtime comments listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+async function addComment(comment) {
+  const commentId = String(
+    comment?.id || `comment-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  );
+  const commentRef = doc(db, "comments", commentId);
+  const now = new Date().toISOString();
+
+  const payload = {
+    ...comment,
+    id: commentId,
+    taskId: String(comment?.taskId || ''),
+    authorId: String(comment?.authorId || ''),
+    authorName: comment?.authorName || "Unknown",
+    authorUid: comment?.authorUid || null,
+    text: String(comment?.text || '').trim(),
+    at: comment?.at || now,
+    createdAt: comment?.createdAt || now,
+    replyToId: comment?.replyToId ? String(comment.replyToId) : null,
+    mentions: Array.isArray(comment?.mentions)
+      ? comment.mentions.map(id => String(id)).filter(Boolean)
+      : [],
+    legacy: comment?.legacy === true,
+    migratedFromLocal: comment?.migratedFromLocal === true,
+    migratedByUid: comment?.migratedByUid || null
+  };
+
+  if (!payload.taskId || !payload.text) {
+    throw new Error("Comment membutuhkan taskId dan text.");
+  }
+
+  if (!payload.authorUid && !payload.legacy) {
+    throw new Error("Comment non-legacy membutuhkan authorUid.");
+  }
+
+  await setDoc(commentRef, payload);
+  return payload;
+}
+
 function subscribeToActivities(onChange, onError) {
   const activitiesQuery = query(
     collection(db, "activities"),
@@ -450,6 +531,9 @@ window.deleteMember = deleteMember;
 window.subscribeToProducts = subscribeToProducts;
 window.subscribeToActivities = subscribeToActivities;
 window.addActivity = addActivity;
+window.subscribeToComments = subscribeToComments;
+window.getAllComments = getAllComments;
+window.addComment = addComment;
 window.saveProductGroup = saveProductGroup;
 window.saveProductGroupAndTasks = saveProductGroupAndTasks;
 window.seedProductGroupIfMissing = seedProductGroupIfMissing;
@@ -480,6 +564,9 @@ export {
   subscribeToProducts,
   subscribeToActivities,
   addActivity,
+  subscribeToComments,
+  getAllComments,
+  addComment,
   saveProductGroup,
   saveProductGroupAndTasks,
   seedProductGroupIfMissing,
