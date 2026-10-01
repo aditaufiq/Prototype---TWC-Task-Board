@@ -317,9 +317,26 @@
 
   /* NOTIFICATION TOAST */
   .notification-toast-wrap{position:fixed;top:1rem;right:1rem;z-index:100;display:flex;flex-direction:column;gap:.55rem;pointer-events:none;}
-  .notification-toast{width:min(380px,calc(100vw - 2rem));background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;box-shadow:0 16px 38px rgba(31,36,48,.18);padding:.8rem .9rem;display:grid;grid-template-columns:auto 1fr auto;gap:.7rem;align-items:start;pointer-events:auto;animation:toastIn .28s ease-out both;}
+  .notification-toast{position:relative;width:min(380px,calc(100vw - 2rem));background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;box-shadow:0 16px 38px rgba(31,36,48,.18);padding:.8rem .9rem;display:grid;grid-template-columns:auto 1fr auto;gap:.7rem;align-items:start;pointer-events:auto;animation:toastIn .28s ease-out both;overflow:visible;}
   .notification-toast.high-priority{border-left-color:var(--high);}
+  .notification-toast.completion{border-left-color:#2F7D4A;box-shadow:0 18px 42px rgba(47,125,74,.2);}
   .notification-toast-icon{width:32px;height:32px;border-radius:9px;background:#FDECEC;color:var(--high);display:flex;align-items:center;justify-content:center;font-size:.9rem;font-weight:700;}
+  .notification-toast.completion .notification-toast-icon{background:#EAF7EE;color:#2F7D4A;font-size:1.05rem;}
+  .notification-toast.completion .notification-toast-title{font-size:.84rem;}
+  .notification-toast-completion-badge{display:inline-flex;align-items:center;gap:.25rem;margin-top:.38rem;font-size:.62rem;font-weight:800;letter-spacing:.03em;color:#2F7D4A;background:#EAF7EE;border-radius:999px;padding:.14rem .42rem;}
+  .completion-confetti{position:absolute;inset:-14px -10px auto -10px;height:58px;pointer-events:none;overflow:visible;}
+  .completion-confetti span{position:absolute;top:7px;left:50%;width:6px;height:10px;border-radius:2px;background:var(--confetti-color,#0F766E);animation:confettiBurst .95s cubic-bezier(.16,.74,.32,1) forwards;transform:translate3d(-50%,0,0) rotate(0deg);opacity:0;}
+  .completion-confetti span:nth-child(1){--confetti-color:#0F766E;--x:-120px;--r:-36deg;animation-delay:.02s}
+  .completion-confetti span:nth-child(2){--confetti-color:#F59E0B;--x:-92px;--r:22deg;animation-delay:.04s}
+  .completion-confetti span:nth-child(3){--confetti-color:#E05A47;--x:-66px;--r:-18deg;animation-delay:.01s}
+  .completion-confetti span:nth-child(4){--confetti-color:#2F7D4A;--x:-42px;--r:28deg;animation-delay:.06s}
+  .completion-confetti span:nth-child(5){--confetti-color:#7C3AED;--x:-18px;--r:-26deg;animation-delay:.03s}
+  .completion-confetti span:nth-child(6){--confetti-color:#0F766E;--x:14px;--r:32deg;animation-delay:.05s}
+  .completion-confetti span:nth-child(7){--confetti-color:#F59E0B;--x:40px;--r:-16deg;animation-delay:.01s}
+  .completion-confetti span:nth-child(8){--confetti-color:#E05A47;--x:64px;--r:20deg;animation-delay:.07s}
+  .completion-confetti span:nth-child(9){--confetti-color:#2F7D4A;--x:88px;--r:-34deg;animation-delay:.04s}
+  .completion-confetti span:nth-child(10){--confetti-color:#7C3AED;--x:114px;--r:18deg;animation-delay:.02s}
+  @keyframes confettiBurst{0%{opacity:0;transform:translate3d(-50%,0,0) rotate(0deg)}12%{opacity:1}100%{opacity:1;transform:translate3d(calc(-50% + var(--x)),28px,0) rotate(var(--r));}}
   .notification-toast-title{font-size:.8rem;font-weight:700;color:var(--ink);line-height:1.35;}
   .notification-toast-body{font-size:.72rem;color:var(--ink-soft);line-height:1.4;margin-top:.18rem;}
   .notification-toast-priority{display:inline-flex;align-items:center;margin-top:.38rem;font-size:.62rem;font-weight:700;letter-spacing:.03em;color:var(--high);background:#FDECEC;border-radius:999px;padding:.14rem .4rem;}
@@ -3280,37 +3297,64 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     const settings = {
       mention: document.getElementById('mentionSound')?.checked !== false,
       message: document.getElementById('chatSound')?.checked === true,
-      assigned: true
+      assigned: true,
+      completed: true
     };
     if (!settings[kind]) return;
     try {
       audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
       if (audioContext.state === 'suspended') audioContext.resume();
+      const now = audioContext.currentTime;
+
+      if (kind === 'completed') {
+        const notes = [660, 880, 1174];
+        notes.forEach((frequency, index) => {
+          const osc = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = frequency;
+          const start = now + index * 0.055;
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.045, start + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.23);
+          osc.connect(gain);
+          gain.connect(audioContext.destination);
+          osc.start(start);
+          osc.stop(start + 0.24);
+        });
+        return;
+      }
+
       const osc = audioContext.createOscillator();
       const gain = audioContext.createGain();
       osc.type = 'sine';
       osc.frequency.value = kind === 'mention' ? 880 : kind === 'assigned' ? 1040 : 660;
-      gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.06, audioContext.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.16);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
       osc.connect(gain);
       gain.connect(audioContext.destination);
-      osc.start();
-      osc.stop(audioContext.currentTime + 0.18);
+      osc.start(now);
+      osc.stop(now + 0.18);
     } catch(e) { console.warn('Notification sound unavailable', e); }
   }
   function showNotificationToast(n){
     const wrap = document.getElementById('notificationToastWrap');
     if (!wrap) return;
-    const highPriority = n.priority === 'high' || n.type === 'mention';
+    const isCompletion = n.sourceEvent === 'completed' || n.type === 'completed';
+    const highPriority = !isCompletion && (n.priority === 'high' || n.type === 'mention');
     const toast = document.createElement('div');
-    toast.className = `notification-toast ${highPriority ? 'high-priority' : ''}`;
+    toast.className = `notification-toast ${highPriority ? 'high-priority' : ''} ${isCompletion ? 'completion' : ''}`;
+    const confetti = isCompletion
+      ? `<div class="completion-confetti" aria-hidden="true">${Array.from({length: 10}, () => '<span></span>').join('')}</div>`
+      : '';
     toast.innerHTML = `
-      <div class="notification-toast-icon">${highPriority ? '!' : '🔔'}</div>
+      ${confetti}
+      <div class="notification-toast-icon">${isCompletion ? '🎉' : highPriority ? '!' : '🔔'}</div>
       <div>
         <div class="notification-toast-title">${escapeHtml(n.title)}</div>
         <div class="notification-toast-body">${escapeHtml(n.body)}</div>
-        ${highPriority ? '<span class="notification-toast-priority">HIGH PRIORITY • MENTION</span>' : ''}
+        ${isCompletion ? '<span class="notification-toast-completion-badge">✓ COMPLETED</span>' : highPriority ? '<span class="notification-toast-priority">HIGH PRIORITY • MENTION</span>' : ''}
       </div>
       <button class="notification-toast-close" aria-label="Dismiss notification">×</button>`;
     wrap.appendChild(toast);
@@ -3326,7 +3370,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
       document.getElementById('notificationPanel')?.classList.remove('open');
       if (n.taskId) openDetail(n.taskId);
     });
-    setTimeout(close, highPriority ? 6500 : 4500);
+    setTimeout(close, isCompletion ? 6000 : highPriority ? 6500 : 4500);
   }
 
   function maybeToastLatestNotification(){
@@ -3355,9 +3399,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     showNotificationToast(candidate);
 
     playNotificationSound(
-      candidate.type === 'mention'
-        ? 'mention'
-        : 'message'
+      candidate.sourceEvent === 'completed' || candidate.type === 'completed'
+        ? 'completed'
+        : candidate.type === 'mention'
+          ? 'mention'
+          : candidate.type === 'assigned'
+            ? 'assigned'
+            : 'message'
     );
   }
 
