@@ -3054,7 +3054,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
               const latest = fresh[fresh.length - 1];
               if (latest) {
-                maybeToastLatestNotification();
+                maybeToastLatestNotification(String(latest.id));
 
                 if (notificationSettings()[latest.type === 'mention' ? 'mention' : 'chat'] ?? true) {
                   sendBrowserNotification(
@@ -3373,7 +3373,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     setTimeout(close, isCompletion ? 6000 : highPriority ? 6500 : 4500);
   }
 
-  function maybeToastLatestNotification(){
+  function maybeToastLatestNotification(preferredId = null){
     if (!notifications.length) return;
     const mine = notifications
       .filter(n => !n.read)
@@ -3381,9 +3381,16 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     if (!mine.length) return;
 
     let toasted = [];
-    try { toasted = JSON.parse(sessionStorage.getItem('taskboard_toasted_notifications_v1') || '[]'); } catch(e) {}
+    try {
+      toasted = JSON.parse(
+        sessionStorage.getItem('taskboard_toasted_notifications_v1') || '[]'
+      );
+    } catch(e) {}
 
-    const candidate = mine.find(n => !toasted.includes(String(n.id)));
+    const candidate = preferredId
+      ? mine.find(n => String(n.id) === String(preferredId) && !toasted.includes(String(n.id)))
+      : mine.find(n => !toasted.includes(String(n.id)));
+
     if (!candidate) return;
 
     toasted.push(String(candidate.id));
@@ -3415,11 +3422,15 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     let recipientUid = null;
     let recipientMemberId = null;
 
-    if (event === 'assigned' || event === 'changes_requested') {
+    if (event === 'assigned' || event === 'changes_requested' || event === 'completed') {
+      // Assignment, changes-requested, and completion are actionable for the PIC.
+      // A completed task should notify the person who owned/worked the task,
+      // not necessarily the person who originally created it.
       recipientMemberId = String(task.assignee || '');
       const member = members.find(m => String(m.id) === recipientMemberId);
       recipientUid = member?.authUid || null;
-    } else if (event === 'review_submitted' || event === 'completed') {
+    } else if (event === 'review_submitted') {
+      // When a PIC submits for review, notify the task creator/reviewer.
       recipientMemberId = String(task.createdBy || '');
       recipientUid = task.createdByUid || members.find(m => String(m.id) === recipientMemberId)?.authUid || null;
     }
@@ -3444,6 +3455,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     const type = event === 'assigned' ? 'assigned'
       : event === 'changes_requested' ? 'changes'
+      : event === 'completed' ? 'completed'
       : 'review';
 
     return {
@@ -4605,6 +4617,7 @@ function renderSummary(){
       const event = task.status === 'review' ? 'review_submitted' : task.status === 'done' ? 'completed' : null;
       if (event) {
         const request = buildTaskEventNotificationRequest(updatedTask, event);
+        console.log('🔔 Task event notification request:', event, request);
         if (request) taskNotificationRequests.push(request);
       }
 

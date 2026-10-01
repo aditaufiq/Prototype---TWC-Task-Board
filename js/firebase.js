@@ -689,20 +689,91 @@ async function addTask(task, notificationRequests = []) {
   const taskRef = doc(db, "tasks", taskId);
   const actorUid = currentAuthUid();
   const now = new Date().toISOString();
+  const createdByUid = task.createdByUid || actorUid;
 
-  const batch = writeBatch(db);
-  batch.set(taskRef, {
-    ...task,
-    createdByUid: task.createdByUid || actorUid,
-    updatedByUid: actorUid,
-    updatedAt: task.updatedAt || now
-  });
+  // Keep identity fields on the in-memory task as well as Firestore.
+  task.createdByUid = createdByUid;
+  task.updatedByUid = actorUid;
+  task.updatedAt = task.updatedAt || now;
 
-  addTaskEventNotificationsToBatch(batch, taskId, notificationRequests, actorUid, task.createdByUid || actorUid);
-
-  await batch.commit();
+  // STEP 1: create the task by itself.
+  // A notification permission problem must never roll back the new task.
+  await setDoc(taskRef, { ...task });
 
   console.log("✅ Task berhasil disimpan ke Firestore:", task);
+
+  // STEP 2: assignment notification for a newly-created task.
+  // This is intentionally a separate write so the notification Rules can
+  // validate the already-persisted task with get().
+  const requests = Array.isArray(notificationRequests)
+    ? notificationRequests.filter(
+        r => r && r.sourceType === 'taskEvent' && r.type === 'assigned'
+      )
+    : [];
+
+  if (!requests.length || !actorUid) return task;
+
+  try {
+    const batch = writeBatch(db);
+    const seen = new Set();
+
+    for (const request of requests) {
+      const recipientUid = String(request.recipientUid || '').trim();
+      const recipientMemberId = String(request.recipientMemberId || '').trim();
+      if (!recipientUid || !recipientMemberId) continue;
+      if (recipientUid === String(actorUid)) continue;
+
+      const eventAt = request.eventAt || task.updatedAt || now;
+      const key = `${recipientUid}|assigned_created|${recipientMemberId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const notificationId = `task-${taskId}-assigned-${String(eventAt).replace(/[^0-9A-Za-z]/g, '')}-${recipientMemberId}`;
+      const notificationRef = doc(
+        db,
+        'users',
+        recipientUid,
+        'notifications',
+        notificationId
+      );
+
+      batch.set(notificationRef, {
+        id: notificationId,
+        recipientUid,
+        recipientMemberId,
+        type: 'assigned',
+        priority: request.priority || 'normal',
+        title: request.title || 'Task assigned to you',
+        body: String(request.body || ''),
+        taskId,
+        commentId: null,
+        sourceType: 'taskEvent',
+        sourceId: taskId,
+        sourceEvent: 'assigned_created',
+        actorUid: String(actorUid),
+        actorMemberId: request.actorMemberId || null,
+        actorName: request.actorName || null,
+        read: false,
+        at: eventAt,
+        createdAt: now,
+        updatedAt: now,
+        legacy: false
+      });
+    }
+
+    if (seen.size) {
+      await batch.commit();
+      console.log('🔔 New-task assignment notification(s) created:', seen.size);
+    }
+  } catch (notificationError) {
+    // Keep task creation successful even if the optional notification write
+    // is blocked or temporarily fails.
+    console.error(
+      '⚠️ Task created, but assignment notification failed:',
+      notificationError
+    );
+  }
+
   return task;
 }
 
