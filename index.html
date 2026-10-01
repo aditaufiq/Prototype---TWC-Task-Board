@@ -4614,7 +4614,11 @@ function renderSummary(){
 
     try {
       const taskNotificationRequests = [];
-      const event = task.status === 'review' ? 'review_submitted' : task.status === 'done' ? 'completed' : null;
+      const event = updatedTask.status === 'review'
+  ? 'review_submitted'
+  : updatedTask.status === 'done'
+    ? 'completed'
+    : null;
       if (event) {
         const request = buildTaskEventNotificationRequest(updatedTask, event);
         console.log('🔔 Task event notification request:', event, request);
