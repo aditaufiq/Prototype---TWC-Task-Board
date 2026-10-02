@@ -2950,45 +2950,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return activitiesRealtimeReadyPromise;
   }
 
-  async function migrateLegacyNotificationsIfNeeded(profile, user){
-    if (notificationMigrationInProgress || !user?.uid) return;
-
-    const legacyMine = notifications
-      .filter(n => String(n.userId || '') === String(currentRole))
-      .map(n => ({ ...n }));
-
-    if (!legacyMine.length) return;
-
-    notificationMigrationInProgress = true;
-
-    try {
-      for (const legacy of legacyMine) {
-        await addNotificationForUser(
-          user.uid,
-          {
-            ...legacy,
-            recipientUid: user.uid,
-            recipientMemberId: currentRole,
-            sourceType: 'legacy',
-            sourceId: String(legacy.id || `legacy-${Date.now()}`),
-            legacy: true,
-            migratedByUid: user.uid,
-            read: legacy.read === true,
-            createdAt: legacy.createdAt || legacy.at || new Date().toISOString(),
-            at: legacy.at || legacy.createdAt || new Date().toISOString()
-          },
-          `legacy-${String(legacy.id || Math.random().toString(36).slice(2))}`
-        );
-      }
-
-      console.log('✅ Initial personal notifications migration completed:', legacyMine.length);
-    } catch (error) {
-      console.error('❌ Initial personal notifications migration gagal:', error);
-    } finally {
-      notificationMigrationInProgress = false;
-    }
-  }
-
   function notificationCacheKey(uid){
     const safeUid = String(uid || '').trim();
     return safeUid ? `taskboard_notifications_v2_${safeUid}` : null;
