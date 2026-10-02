@@ -3047,6 +3047,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
               if (!notificationMigrationInProgress && remoteNotifications.length === 0) {
                 await migrateLegacyNotificationsIfNeeded(profile, user);
               }
+              // Check deadline reminders only after the personal notification
+              // listener has received its initial snapshot.
+              await checkDeadlineNotifications();
             } else {
               const fresh = notifications
                 .filter(notification => !previousIds.has(String(notification.id)) && !notification.read)
@@ -3056,7 +3059,15 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
               if (latest) {
                 maybeToastLatestNotification(String(latest.id));
 
-                if (notificationSettings()[latest.type === 'mention' ? 'mention' : 'chat'] ?? true) {
+                const settings = notificationSettings();
+                const shouldBrowserNotify =
+                  latest.type === 'mention'
+                    ? settings.mention
+                    : (latest.type === 'deadline' || latest.type === 'overdue')
+                      ? true
+                      : settings.chat;
+
+                if (shouldBrowserNotify) {
                   sendBrowserNotification(
                     latest.title,
                     latest.body,
@@ -4614,14 +4625,10 @@ function renderSummary(){
 
     try {
       const taskNotificationRequests = [];
-      const event = updatedTask.status === 'review'
-  ? 'review_submitted'
-  : updatedTask.status === 'done'
-    ? 'completed'
-    : null;
+      const event = updatedTask.status === 'review' ? 'review_submitted' : updatedTask.status === 'done' ? 'completed' : null;
       if (event) {
         const request = buildTaskEventNotificationRequest(updatedTask, event);
-        console.log('🔔 Task event notification request:', event, request);
+        console.log('🔔 Task event notification request:', { event, oldStatus, newStatus: updatedTask.status, request });
         if (request) taskNotificationRequests.push(request);
       }
 
@@ -5349,21 +5356,124 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     try { new Notification(title, { body, tag }); } catch(e) { console.warn('Notification failed', e); }
   }
-  function notifyUserFromTask(task, type, title, body){
-    if (!task || !task.assignee) return;
-    const duplicate = notifications.some(n => n.userId === task.assignee && n.type === type && n.taskId === task.id && n.title === title && new Date(n.at).toDateString() === new Date().toDateString());
-    if (!duplicate) makeNotification(task.assignee, type, title, body, task.id);
-    if (task.assignee === currentRole) sendBrowserNotification(title, body, `task-${task.id}-${type}`);
+  function deadlineNotificationId(task, kind, dateKey){
+    return `deadline-${String(task.id)}-${kind}-${String(dateKey || task.due)}`;
   }
-  function checkDeadlineNotifications(){
+
+  async function ensureDeadlineNotification(task, type, kind, title, body, dateKey){
+    if (!task || !task.assignee || !currentUserUid) return;
+    if (String(task.assignee) !== String(currentRole)) return;
+
+    const notificationId = deadlineNotificationId(task, kind, dateKey);
+    const existing = notifications.find(n => String(n.id) === notificationId);
+    if (existing) return;
+
+    const now = new Date().toISOString();
+    const notification = {
+      id: notificationId,
+      userId: currentRole,
+      recipientUid: currentUserUid,
+      recipientMemberId: currentRole,
+      type,
+      priority: 'normal',
+      title,
+      body,
+      taskId: String(task.id),
+      commentId: null,
+      sourceType: 'deadline',
+      sourceId: notificationId,
+      sourceEvent: kind,
+      actorUid: currentUserUid,
+      actorMemberId: currentRole,
+      actorName: actorName(),
+      read: false,
+      at: now,
+      createdAt: now,
+      updatedAt: now,
+      legacy: false
+    };
+
+    try {
+      await addNotificationForUser(
+        currentUserUid,
+        notification,
+        notificationId
+      );
+    } catch (error) {
+      console.error('❌ Deadline notification gagal disimpan:', error);
+    }
+  }
+
+  async function checkDeadlineNotifications(){
     const settings = notificationSettings();
-    tasks.filter(t => t.status !== 'done' && t.due).forEach(task => {
+
+    if (!currentUserUid || !currentRole) {
+      renderNotifications();
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayKey = today.toISOString().slice(0, 10);
+
+    const assignedTasks = tasks.filter(task =>
+      task &&
+      task.status !== 'done' &&
+      task.due &&
+      String(task.assignee || '') === String(currentRole)
+    );
+
+    const jobs = [];
+
+    for (const task of assignedTasks) {
       const d = daysUntilDue(task);
-      if (d === 3 && settings.d3) notifyUserFromTask(task, 'deadline', 'Task due in 3 days', `${task.title} — due ${formatDate(task.due)}`);
-      if (d === 1 && settings.d1) notifyUserFromTask(task, 'deadline', 'Task due tomorrow', `${task.title} — due ${formatDate(task.due)}`);
-      if (d === 0 && settings.d0) notifyUserFromTask(task, 'deadline', 'Task due today', `${task.title} — due today`);
-      if (d < 0 && settings.overdue) notifyUserFromTask(task, 'overdue', 'Task overdue', `${task.title} — ${Math.abs(d)} day(s) overdue`);
-    });
+
+      if (d === 3 && settings.d3) {
+        jobs.push(ensureDeadlineNotification(
+          task,
+          'deadline',
+          'd3',
+          'Task due in 3 days',
+          `${task.title} — due ${formatDate(task.due)}`,
+          task.due
+        ));
+      }
+
+      if (d === 1 && settings.d1) {
+        jobs.push(ensureDeadlineNotification(
+          task,
+          'deadline',
+          'd1',
+          'Task due tomorrow',
+          `${task.title} — due ${formatDate(task.due)}`,
+          task.due
+        ));
+      }
+
+      if (d === 0 && settings.d0) {
+        jobs.push(ensureDeadlineNotification(
+          task,
+          'deadline',
+          'd0',
+          'Task due today',
+          `${task.title} — due today`,
+          task.due
+        ));
+      }
+
+      if (d < 0 && settings.overdue) {
+        jobs.push(ensureDeadlineNotification(
+          task,
+          'overdue',
+          'overdue',
+          'Task overdue',
+          `${task.title} — ${Math.abs(d)} day(s) overdue`,
+          todayKey
+        ));
+      }
+    }
+
+    await Promise.all(jobs);
     renderNotifications();
   }
   function refreshNotificationStatus(){
@@ -5393,9 +5503,14 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     if (!('Notification' in window)) return;
     const permission = await Notification.requestPermission();
     refreshNotificationStatus();
-    if (permission === 'granted') { checkDeadlineNotifications(); sendBrowserNotification('Task Board notifications enabled', 'You will receive reminders and mention alerts on this device.', 'taskboard-enabled'); }
+    if (permission === 'granted') {
+      await checkDeadlineNotifications();
+      sendBrowserNotification('Task Board notifications enabled', 'You will receive reminders and mention alerts on this device.', 'taskboard-enabled');
+    }
   });
-  ['remind3','remind1','remind0','remindOverdue','mentionNotify','chatNotify'].forEach(id => document.getElementById(id)?.addEventListener('change', checkDeadlineNotifications));
+  ['remind3','remind1','remind0','remindOverdue','mentionNotify','chatNotify'].forEach(id => document.getElementById(id)?.addEventListener('change', () => {
+    checkDeadlineNotifications().catch(error => console.error('❌ Deadline notification check gagal:', error));
+  }));
   document.getElementById('calendarHelpBtn').addEventListener('click', () => {
     alert('Google Tasks is the scheduling handoff for this prototype. Open a task and click “＋ Add to Google Tasks” to copy its details and open Google Calendar Tasks. One-click automatic creation requires Google OAuth + a backend.');
   });
@@ -5404,8 +5519,10 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     const wrap = document.querySelector('.notification-wrap');
     if (wrap && !wrap.contains(e.target)) notificationPanel.classList.remove('open');
   });
-  checkDeadlineNotifications();
-  setInterval(checkDeadlineNotifications, 60000);
+  checkDeadlineNotifications().catch(error => console.error('❌ Deadline notification check gagal:', error));
+  setInterval(() => {
+    checkDeadlineNotifications().catch(error => console.error('❌ Deadline notification check gagal:', error));
+  }, 60000);
 
   // ---- product management ----
   const productsOverlay=document.getElementById('productsOverlay');
@@ -6096,6 +6213,7 @@ startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
 await startActivitiesRealtime(profile, user);
 await startNotificationsRealtime(profile, user);
+await checkDeadlineNotifications();
 enterWorkspace();
 
   }catch(error){
@@ -6552,6 +6670,7 @@ onAuthStateChanged(auth, async (user) => {
     await startTasksRealtime(profile, user);
     await startActivitiesRealtime(profile, user);
     await startNotificationsRealtime(profile, user);
+await checkDeadlineNotifications();
 
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
