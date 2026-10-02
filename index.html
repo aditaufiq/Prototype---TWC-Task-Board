@@ -2338,7 +2338,11 @@ let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null
   let members = JSON.parse(localStorage.getItem('taskboard_members_v2') || 'null') || DEFAULT_MEMBERS;
   let activities = JSON.parse(localStorage.getItem('taskboard_activity_v2') || 'null') || [];
   let messages = JSON.parse(localStorage.getItem('taskboard_messages_v1') || 'null') || [];
-  let notifications = JSON.parse(localStorage.getItem('taskboard_notifications_v1') || 'null') || [];
+  // Personal notifications are sourced from Firestore.
+  // localStorage is only a per-user cache and never the source of truth.
+  let notifications = [];
+  let notificationKnownIds = new Set();
+  let deadlineCheckInProgress = false;
   let activeDepartmenton = 'all';
   let activeProduct = null;
   let expandedDepartments = new Set();
@@ -2985,6 +2989,85 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     }
   }
 
+  function notificationCacheKey(uid){
+    const safeUid = String(uid || '').trim();
+    return safeUid ? `taskboard_notifications_v2_${safeUid}` : null;
+  }
+
+  function readNotificationCache(uid){
+    const key = notificationCacheKey(uid);
+    if (!key) return [];
+
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.warn('⚠️ Notification cache tidak bisa dibaca:', error);
+      return [];
+    }
+  }
+
+  function readLegacyNotificationCache(){
+    try {
+      const parsed = JSON.parse(
+        localStorage.getItem('taskboard_notifications_v1') || 'null'
+      );
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function notificationToastCacheKey(uid){
+    const safeUid = String(uid || '').trim();
+    return safeUid
+      ? `taskboard_toasted_notifications_v2_${safeUid}`
+      : 'taskboard_toasted_notifications_v2_guest';
+  }
+
+  async function migrateLegacyNotificationsIfNeeded(profile, user){
+    if (notificationMigrationInProgress || !user?.uid) return;
+
+    const legacyMine = readLegacyNotificationCache()
+      .filter(n => String(n.userId || '') === String(currentRole))
+      .map(n => ({ ...n }));
+
+    if (!legacyMine.length) return;
+
+    notificationMigrationInProgress = true;
+
+    try {
+      for (const legacy of legacyMine) {
+        const legacyId = String(
+          legacy.id || `legacy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        );
+
+        await addNotificationForUser(
+          user.uid,
+          {
+            ...legacy,
+            recipientUid: user.uid,
+            recipientMemberId: currentRole,
+            sourceType: 'legacy',
+            sourceId: legacyId,
+            legacy: true,
+            migratedByUid: user.uid,
+            read: legacy.read === true,
+            createdAt: legacy.createdAt || legacy.at || new Date().toISOString(),
+            at: legacy.at || legacy.createdAt || new Date().toISOString()
+          },
+          `legacy-${legacyId}`
+        );
+      }
+
+      console.log('✅ Initial personal notifications migration completed:', legacyMine.length);
+    } catch (error) {
+      console.error('❌ Initial personal notifications migration gagal:', error);
+    } finally {
+      notificationMigrationInProgress = false;
+    }
+  }
+
   async function startNotificationsRealtime(profile, user){
     if (!user?.uid) return;
 
@@ -3002,6 +3085,26 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     notificationRealtimeInitialized = false;
     currentUserUid = user.uid;
 
+    // Never expose another user's notification cache while this user's
+    // Firestore snapshot is loading.
+    notifications = readNotificationCache(user.uid)
+      .map(notification => ({
+        ...notification,
+        id: String(notification.id || ''),
+        taskId: notification.taskId == null ? null : String(notification.taskId),
+        commentId: notification.commentId == null ? null : String(notification.commentId),
+        read: notification.read === true,
+        at: notification.at || notification.createdAt || new Date().toISOString()
+      }))
+      .filter(notification => notification.id)
+      .sort((a, b) => new Date(b.at) - new Date(a.at));
+
+    notificationKnownIds = new Set(
+      notifications.map(notification => String(notification.id))
+    );
+
+    renderNotifications();
+
     notificationsRealtimeReadyPromise = new Promise(resolve => {
       let firstSnapshotHandled = false;
 
@@ -3016,10 +3119,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         user.uid,
         async remoteNotifications => {
           try {
-            const previousIds = new Set(
-              notifications.map(notification => String(notification.id))
-            );
-
             const normalized = remoteNotifications
               .map(notification => ({
                 ...notification,
@@ -3034,28 +3133,44 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                 read: notification.read === true,
                 at: notification.at || notification.createdAt || new Date().toISOString()
               }))
+              .filter(notification => notification.id)
               .sort((a, b) => new Date(b.at) - new Date(a.at));
 
             const isInitialSnapshot = !notificationRealtimeInitialized;
+            const previousKnownIds = new Set(notificationKnownIds);
+
             notifications = normalized.slice(0, 3000);
+            notificationKnownIds = new Set(
+              notifications.map(notification => String(notification.id))
+            );
             saveNotifications();
 
             console.log('🔔 Realtime personal notifications synced:', notifications.length);
 
             if (isInitialSnapshot) {
               notificationRealtimeInitialized = true;
+
               if (!notificationMigrationInProgress && remoteNotifications.length === 0) {
                 await migrateLegacyNotificationsIfNeeded(profile, user);
               }
-              // Check deadline reminders only after the personal notification
-              // listener has received its initial snapshot.
+
+              // Catch up deadline reminders whenever the first authoritative
+              // Firestore notification snapshot is available.
               await checkDeadlineNotifications();
             } else {
               const fresh = notifications
-                .filter(notification => !previousIds.has(String(notification.id)) && !notification.read)
+                .filter(notification =>
+                  !previousKnownIds.has(String(notification.id)) &&
+                  !notification.read &&
+                  !(
+                    notification.legacy === true &&
+                    notification.migratedByUid === user.uid
+                  )
+                )
                 .sort((a, b) => new Date(a.at) - new Date(b.at));
 
               const latest = fresh[fresh.length - 1];
+
               if (latest) {
                 maybeToastLatestNotification(String(latest.id));
 
@@ -3064,7 +3179,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                   latest.type === 'mention'
                     ? settings.mention
                     : (latest.type === 'deadline' || latest.type === 'overdue')
-                      ? true
+                      ? settings.d0 || settings.d1 || settings.d3 || settings.overdue
                       : settings.chat;
 
                 if (shouldBrowserNotify) {
@@ -3102,6 +3217,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     notificationsRealtimeUserUid = null;
     notificationsRealtimeReadyPromise = Promise.resolve();
     notificationRealtimeInitialized = false;
+    notificationKnownIds = new Set();
+    notifications = [];
+    renderNotifications();
   }
 
   async function migrateLegacyCommentsIfNeeded(profile, user){
@@ -3250,7 +3368,19 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
   function saveMessages(){ localStorage.setItem('taskboard_messages_v1', JSON.stringify(messages)); }
 
-  function saveNotifications(){ localStorage.setItem('taskboard_notifications_v1', JSON.stringify(notifications)); }
+  function saveNotifications(){
+    const key = notificationCacheKey(currentUserUid);
+    if (!key) return;
+
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify(notifications.slice(0, 3000))
+      );
+    } catch (error) {
+      console.warn('⚠️ Notification cache tidak bisa disimpan:', error);
+    }
+  }
 
   // Shared product state lives in Firestore; localStorage is only a cache.
   function saveProducts(){ localStorage.setItem('taskboard_products_v1', JSON.stringify(products)); }
@@ -3394,7 +3524,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     let toasted = [];
     try {
       toasted = JSON.parse(
-        sessionStorage.getItem('taskboard_toasted_notifications_v1') || '[]'
+        sessionStorage.getItem(notificationToastCacheKey(currentUserUid)) || '[]'
       );
     } catch(e) {}
 
@@ -3409,7 +3539,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     try {
       sessionStorage.setItem(
-        'taskboard_toasted_notifications_v1',
+        notificationToastCacheKey(currentUserUid),
         JSON.stringify(toasted)
       );
     } catch(e) {}
@@ -4245,7 +4375,7 @@ function renderSummary(){
   function notificationCategory(type){
     if(type==='mention') return 'mentions';
     if(type==='deadline'||type==='overdue') return 'deadlines';
-    if(type==='assigned') return 'tasks';
+    if(type==='assigned'||type==='completed') return 'tasks';
     if(type==='review'||type==='changes') return 'reviews';
     return 'messages';
   }
@@ -4288,13 +4418,17 @@ function renderSummary(){
       try {
         if (!n.read && currentUserUid) {
           await markNotificationRead(currentUserUid, n.id);
+          n.read = true;
+          saveNotifications();
+        } else if (!n.read) {
+          n.read = true;
+          saveNotifications();
         }
       } catch(error) {
         console.error('❌ Mark notification read gagal:', error);
+        return;
       }
 
-      n.read=true;
-      saveNotifications();
       document.getElementById('notificationPanel').classList.remove('open');
       if(n.taskId) openDetail(n.taskId);
       else renderNotifications();
@@ -5405,14 +5539,18 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   }
 
   async function checkDeadlineNotifications(){
-    const settings = notificationSettings();
+    if (deadlineCheckInProgress) return;
+    deadlineCheckInProgress = true;
 
-    if (!currentUserUid || !currentRole) {
-      renderNotifications();
-      return;
-    }
+    try {
+      const settings = notificationSettings();
 
-    const today = new Date();
+      if (!currentUserUid || !currentRole) {
+        renderNotifications();
+        return;
+      }
+
+      const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayKey = today.toISOString().slice(0, 10);
 
@@ -5473,9 +5611,29 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       }
     }
 
-    await Promise.all(jobs);
-    renderNotifications();
+      await Promise.all(jobs);
+      renderNotifications();
+    } finally {
+      deadlineCheckInProgress = false;
+    }
   }
+
+  // Re-check deadlines when the user returns to the app or regains network
+  // connectivity. This provides catch-up behavior without a paid backend.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkDeadlineNotifications().catch(error =>
+        console.error('❌ Deadline visibility check gagal:', error)
+      );
+    }
+  });
+
+  window.addEventListener('online', () => {
+    checkDeadlineNotifications().catch(error =>
+      console.error('❌ Deadline online check gagal:', error)
+    );
+  });
+
   function refreshNotificationStatus(){
     const box = document.getElementById('notificationStatus');
     if (!('Notification' in window)) { box.textContent = 'Browser notifications are not supported on this device/browser.'; return; }
@@ -5486,11 +5644,14 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   document.getElementById('notifyBtn').addEventListener('click', (e) => { e.stopPropagation(); notificationPanel.classList.toggle('open'); renderNotifications(); });
   document.querySelectorAll('[data-notification-filter]').forEach(btn=>btn.addEventListener('click',()=>{ notificationFilter=btn.dataset.notificationFilter; document.querySelectorAll('[data-notification-filter]').forEach(x=>x.classList.toggle('active',x===btn)); renderNotifications(); }));
   document.getElementById('markAllReadBtn').addEventListener('click', async () => {
+    const unread = notifications.filter(n => !n.read);
+
     try {
       if (currentUserUid) {
-        await markAllNotificationsRead(currentUserUid, notifications.filter(n => !n.read));
+        await markAllNotificationsRead(currentUserUid, unread);
       }
-      notifications.filter(n => !n.read).forEach(n => n.read = true);
+
+      unread.forEach(n => n.read = true);
       saveNotifications();
       renderNotifications();
     } catch (error) {
@@ -6670,7 +6831,6 @@ onAuthStateChanged(auth, async (user) => {
     await startTasksRealtime(profile, user);
     await startActivitiesRealtime(profile, user);
     await startNotificationsRealtime(profile, user);
-await checkDeadlineNotifications();
 
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
@@ -6737,6 +6897,9 @@ enterWorkspace();
     document.getElementById('notificationPanel')?.classList.remove('open');
     stopNotificationsRealtime();
     currentUserUid = null;
+    notificationKnownIds = new Set();
+    notifications = [];
+    renderNotifications();
     document.querySelectorAll('.overlay.open').forEach(el=>el.classList.remove('open'));
     dashboardMode=true; activeDepartmenton='all'; activeProduct=null; myTasksOnly=false; archiveMode=false; viewMode='board';
     showWelcome();
