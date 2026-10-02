@@ -1706,8 +1706,57 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   margin-top:1rem;
 }
 </style>
+
+<style id="v2-13-auth-restore">
+  body.auth-pending #welcomeScreen,
+  body.auth-pending .app,
+  body.auth-pending #profileSetupScreen {
+    display: none !important;
+  }
+  #authRestoreScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    display: none;
+    place-items: center;
+    background: radial-gradient(circle at 20% 20%, rgba(15,118,110,.08), transparent 32%),
+                linear-gradient(180deg, #f8faf9, #eef3f0);
+  }
+  body.auth-pending #authRestoreScreen { display: grid; }
+  .auth-restore-card {
+    width: min(330px, 88vw);
+    padding: 1.2rem 1.25rem;
+    border: 1px solid rgba(31,49,46,.08);
+    border-radius: 16px;
+    background: rgba(255,255,255,.78);
+    box-shadow: 0 20px 55px rgba(24,50,45,.10);
+    text-align: center;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+  .auth-restore-spinner {
+    width: 22px;
+    height: 22px;
+    margin: 0 auto .65rem;
+    border: 2px solid rgba(15,118,110,.16);
+    border-top-color: #0f766e;
+    border-radius: 50%;
+    animation: authRestoreSpin .75s linear infinite;
+  }
+  .auth-restore-card strong { display:block; font-size:.76rem; color:#183b38; }
+  .auth-restore-card span { display:block; margin-top:.18rem; font-size:.62rem; color:#7b8884; }
+  @keyframes authRestoreSpin { to { transform: rotate(360deg); } }
+</style>
 </head>
-<body>
+<body class="auth-pending">
+<div id="authRestoreScreen" aria-live="polite" aria-busy="true">
+  <div class="auth-restore-card">
+    <div class="auth-restore-spinner"></div>
+    <strong>Restoring your workspace</strong>
+    <span>Checking your secure session…</span>
+  </div>
+</div>
+
 <div class="welcome-screen" id="welcomeScreen">
   <div class="welcome-orb welcome-orb-a"></div><div class="welcome-orb welcome-orb-b"></div>
   <div class="welcome-brand">
@@ -6221,6 +6270,10 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   document.querySelector('.app')?.classList.remove('app-hidden');
 }
 
+function finishAuthBoot(){
+  document.body.classList.remove('auth-pending');
+}
+
 function showProfileSetup(user){
   const screen = document.getElementById('profileSetupScreen');
   const emailInput = document.getElementById('profileEmail');
@@ -6813,6 +6866,7 @@ onAuthStateChanged(auth, async (user) => {
 
     renderNotifications();
     showWelcome();
+    finishAuthBoot();
     return;
   }
 
@@ -6821,6 +6875,7 @@ onAuthStateChanged(auth, async (user) => {
 
     if (!profile) {
       showProfileSetup(user);
+      finishAuthBoot();
       return;
     }
 
@@ -6863,9 +6918,12 @@ onAuthStateChanged(auth, async (user) => {
     // directly to the workspace instead of showing the welcome screen again.
     await checkDeadlineNotifications();
     enterWorkspace();
+    finishAuthBoot();
 
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
+    showWelcome();
+    finishAuthBoot();
   }
 });
 function showWelcome(){
@@ -6964,7 +7022,6 @@ enterWorkspace();
   });
 
   renderAll();
-  showWelcome();
 
 </script>
 
