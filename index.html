@@ -3324,6 +3324,58 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     commentsRealtimeReadyPromise = Promise.resolve();
   }
 
+  // Stop every realtime listener tied to the signed-in session.
+  // This prevents stale listeners from surviving logout and lets a new
+  // Firebase user start with a clean session.
+  function stopAllRealtimeListeners(){
+    const listeners = [
+      ['tasks', unsubscribeTasksRealtime],
+      ['members', unsubscribeMembersRealtime],
+      ['products', unsubscribeProductsRealtime],
+      ['activities', unsubscribeActivitiesRealtime],
+      ['comments', unsubscribeCommentsRealtime],
+      ['notifications', unsubscribeNotificationsRealtime]
+    ];
+
+    for (const [name, unsubscribe] of listeners) {
+      try {
+        if (typeof unsubscribe === 'function') unsubscribe();
+      } catch (error) {
+        console.warn(`⚠️ Gagal menghentikan listener ${name}:`, error);
+      }
+    }
+
+    unsubscribeTasksRealtime = null;
+    unsubscribeMembersRealtime = null;
+    unsubscribeProductsRealtime = null;
+    unsubscribeActivitiesRealtime = null;
+    unsubscribeCommentsRealtime = null;
+    unsubscribeNotificationsRealtime = null;
+
+    tasksRealtimeUserUid = null;
+    membersRealtimeUserUid = null;
+    productsRealtimeUserUid = null;
+    activitiesRealtimeUserUid = null;
+    commentsRealtimeUserUid = null;
+    commentsRealtimeTaskId = null;
+    notificationsRealtimeUserUid = null;
+
+    tasksRealtimeReadyPromise = Promise.resolve();
+    membersRealtimeReadyPromise = Promise.resolve();
+    productsRealtimeReadyPromise = Promise.resolve();
+    activitiesRealtimeReadyPromise = Promise.resolve();
+    commentsRealtimeReadyPromise = Promise.resolve();
+    notificationsRealtimeReadyPromise = Promise.resolve();
+
+    notificationRealtimeInitialized = false;
+    notificationMigrationInProgress = false;
+    memberMigrationInProgress = false;
+    productMigrationInProgress = false;
+    activityMigrationInProgress = false;
+    taskMigrationInProgress = false;
+    commentsMigrationInProgress = false;
+  }
+
   // Firestore is the source of truth for shared activity history.
   // localStorage is retained only as a cache/fallback while the listener connects.
   function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
@@ -6746,8 +6798,21 @@ document
   
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
+    stopAllRealtimeListeners();
+    stopCommentsRealtime();
+
+    currentUserUid = null;
+    currentUserProfile = null;
     currentRole = 'admin';
     currentAccessLevel = 'standard';
+    notifications = [];
+    notificationKnownIds = new Set();
+
+    document.getElementById('notificationPanel')?.classList.remove('open');
+    document.querySelectorAll('.overlay.open').forEach(el => el.classList.remove('open'));
+
+    renderNotifications();
+    showWelcome();
     return;
   }
 
@@ -6788,10 +6853,16 @@ onAuthStateChanged(auth, async (user) => {
     });
 
     await startMembersRealtime(profile, user);
-    startProductsRealtime(profile, user);
+    await startProductsRealtime(profile, user);
     await startTasksRealtime(profile, user);
     await startActivitiesRealtime(profile, user);
     await startNotificationsRealtime(profile, user);
+
+    // Firebase Auth restores the existing session after a browser refresh.
+    // Once the authoritative realtime snapshots are ready, return the user
+    // directly to the workspace instead of showing the welcome screen again.
+    await checkDeadlineNotifications();
+    enterWorkspace();
 
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
@@ -6834,9 +6905,11 @@ window.syncLegacyWorkspaceIdentity(
 );
 
 await startMembersRealtime(profile, user);
-startProductsRealtime(profile, user);
+await startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
 await startActivitiesRealtime(profile, user);
+await startNotificationsRealtime(profile, user);
+await checkDeadlineNotifications();
 enterWorkspace();
 
   } catch (error) {
@@ -6855,15 +6928,39 @@ enterWorkspace();
   document.getElementById('welcomePassword')?.addEventListener('keydown',e=>{if(e.key==='Enter')enterWorkspace();});
   document.getElementById('welcomeEmail')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('welcomePassword')?.focus();});
   document.getElementById('signOutBtn')?.addEventListener('click',async ()=>{
-    document.getElementById('notificationPanel')?.classList.remove('open');
-    stopNotificationsRealtime();
-    currentUserUid = null;
-    notificationKnownIds = new Set();
-    notifications = [];
-    renderNotifications();
-    document.querySelectorAll('.overlay.open').forEach(el=>el.classList.remove('open'));
-    dashboardMode=true; activeDepartmenton='all'; activeProduct=null; myTasksOnly=false; archiveMode=false; viewMode='board';
-    showWelcome();
+    const button = document.getElementById('signOutBtn');
+    if (button) button.disabled = true;
+
+    try {
+      document.getElementById('notificationPanel')?.classList.remove('open');
+      document.querySelectorAll('.overlay.open').forEach(el => el.classList.remove('open'));
+      stopAllRealtimeListeners();
+
+      currentUserUid = null;
+      currentUserProfile = null;
+      notificationKnownIds = new Set();
+      notifications = [];
+      currentRole = 'admin';
+      currentAccessLevel = 'standard';
+      dashboardMode = true;
+      activeDepartmenton = 'all';
+      activeProduct = null;
+      myTasksOnly = false;
+      archiveMode = false;
+      viewMode = 'board';
+      selectedTaskIds = new Set();
+
+      renderNotifications();
+
+      // Firebase Auth is the source of session truth.
+      // onAuthStateChanged() will show the welcome screen after sign-out.
+      await signOut(auth);
+    } catch (error) {
+      console.error('❌ Gagal sign out dari Firebase:', error);
+      alert('Gagal sign out. Silakan coba lagi.');
+    } finally {
+      if (button) button.disabled = false;
+    }
   });
 
   renderAll();
