@@ -161,6 +161,11 @@
     font-size: 0.68rem; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }
+  .avatar-photo,.mini-avatar.avatar-photo,.chat-avatar.avatar-photo,.notification-avatar.avatar-photo,.contributor-chip .mini.avatar-photo{position:relative;overflow:hidden;padding:0!important;border-radius:50%;}
+  .avatar-photo img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;transform-origin:center center;pointer-events:none;user-select:none;}
+  .notification-item-content{display:flex;align-items:flex-start;gap:.55rem;min-width:0;}
+  .notification-item-copy{min-width:0;flex:1;}
+  .notification-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.58rem;font-weight:700;flex:0 0 auto;}
   .meta-right{ display: flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; color: var(--ink-soft); }
   .priority-dot{ width: 7px; height: 7px; border-radius: 50%; }
 
@@ -2439,6 +2444,16 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
       existingMember.active = true;
       if (profile?.authUid) existingMember.authUid = profile.authUid;
+      if (profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhoto')) {
+        existingMember.profilePhoto = profile.profilePhoto || null;
+      }
+      if (profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhotoPosition')) {
+        existingMember.profilePhotoPosition = {
+          x: Number(profile.profilePhotoPosition?.x || 0),
+          y: Number(profile.profilePhotoPosition?.y || 0),
+          zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+        };
+      }
 
     } else {
       members.push({
@@ -2448,7 +2463,19 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         color: '#0F766E',
         role: profile?.role || 'member',
         active: true,
-        ...(profile?.authUid ? { authUid: profile.authUid } : {})
+        ...(profile?.authUid ? { authUid: profile.authUid } : {}),
+        ...(profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhoto')
+          ? { profilePhoto: profile.profilePhoto || null }
+          : {}),
+        ...(profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhotoPosition')
+          ? {
+              profilePhotoPosition: {
+                x: Number(profile.profilePhotoPosition?.x || 0),
+                y: Number(profile.profilePhotoPosition?.y || 0),
+                zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+              }
+            }
+          : {})
       });
     }
   }
@@ -2618,7 +2645,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         color: '#0F766E',
         role: profile.role || 'member',
         active: true,
-        authUid: user.uid
+        authUid: user.uid,
+        profilePhoto: profile.profilePhoto || null,
+        profilePhotoPosition: {
+          x: Number(profile.profilePhotoPosition?.x || 0),
+          y: Number(profile.profilePhotoPosition?.y || 0),
+          zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+        }
       });
       saveMembers();
       renderAll();
@@ -2626,6 +2659,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     try {
       const existing = await getMember(memberId);
+
+      const desiredProfilePhoto = profile.profilePhoto || null;
+      const desiredPosition = {
+        x: Number(profile.profilePhotoPosition?.x || 0),
+        y: Number(profile.profilePhotoPosition?.y || 0),
+        zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+      };
 
       if (!existing) {
         await saveMember({
@@ -2635,9 +2675,35 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           color: cachedMember?.color || '#0F766E',
           role: 'member',
           active: true,
-          authUid: user.uid
+          authUid: user.uid,
+          profilePhoto: desiredProfilePhoto,
+          profilePhotoPosition: desiredPosition
         });
         console.log('✅ Current user member dibuat di Firestore:', memberId);
+      } else {
+        const existingPosition = existing.profilePhotoPosition || {};
+        const desiredName = profile.username || user.displayName || 'User';
+        const desiredEmail = profile.email || user.email || '';
+        const needsProfileSync =
+          (existing.name || '') !== desiredName ||
+          (existing.email || '') !== desiredEmail ||
+          (existing.authUid || '') !== user.uid ||
+          (existing.profilePhoto || null) !== desiredProfilePhoto ||
+          Number(existingPosition.x || 0) !== desiredPosition.x ||
+          Number(existingPosition.y || 0) !== desiredPosition.y ||
+          Number(existingPosition.zoom || 1.5) !== desiredPosition.zoom;
+
+        if (needsProfileSync) {
+          await saveMember({
+            ...existing,
+            name: desiredName,
+            email: desiredEmail,
+            authUid: user.uid,
+            profilePhoto: desiredProfilePhoto,
+            profilePhotoPosition: desiredPosition
+          });
+          console.log('✅ Current user profile visual disinkronkan ke member:', memberId);
+        }
       }
     } catch (error) {
       console.error('❌ Gagal memastikan current user member:', error);
@@ -3778,6 +3844,30 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   function saveAll(){ save(); saveMembers(); saveActivities(); saveMessages(); saveNotifications(); saveProducts(); }
   function divisionOf(id){ return DIVISIONS.find(d => d.id === id); }
   function memberOf(id){ return members.find(m => m.id === id) || (id === 'admin' || id === '__admin__' ? { name: 'Admin', color: '#344054' } : { name: '?', color: '#999' }); }
+
+  function avatarMarkup(member, className='avatar', title=null){
+    const person = member || { name: '?', color: '#999' };
+    const name = String(person.name || '?');
+    const color = String(person.color || '#999');
+    const photo = person.profilePhoto || null;
+    const position = person.profilePhotoPosition || {};
+    const rawX = Number(position.x);
+    const rawY = Number(position.y);
+    const rawZoom = Number(position.zoom);
+    const x = Number.isFinite(rawX) ? Math.max(-400, Math.min(400, rawX)) : 0;
+    const y = Number.isFinite(rawY) ? Math.max(-400, Math.min(400, rawY)) : 0;
+    const zoom = Number.isFinite(rawZoom) ? Math.max(1, Math.min(4, rawZoom)) : 1.5;
+    const safeTitle = escapeHtml(title || name);
+    const safeColor = escapeHtml(color);
+    const initial = escapeHtml(name.slice(0,2).toUpperCase());
+
+    if (photo) {
+      return `<span class="${className} avatar-photo" style="background:${safeColor}" title="${safeTitle}"><img src="${escapeHtml(photo)}" alt="" draggable="false" style="transform:translate(${x}px, ${y}px) scale(${zoom})"></span>`;
+    }
+
+    return `<span class="${className}" style="background:${safeColor}" title="${safeTitle}">${initial}</span>`;
+  }
+
   function isAdmin(){
   return currentAccessLevel === 'all'
     || currentRole === 'admin'
@@ -4030,7 +4120,7 @@ roleTag.className =
       return `<div class="task-list-row" data-task-id="${t.id}">
         ${isAdmin() ? `<label class="task-select"><input type="checkbox" data-task-select="${t.id}" ${selectedTaskIds.has(t.id)?'checked':''}></label>` : ''}
         <div class="task-list-title"><strong>${escapeHtml(t.title)}</strong><small><span class="list-dept-dot" style="background:${div.color}"></span>${escapeHtml(div.name)}${t.product?` · ${escapeHtml(t.product)}`:''}</small></div>
-        <div class="task-list-owner"><span class="avatar mini" style="background:${person.color}">${escapeHtml(person.name.slice(0,2).toUpperCase())}</span>${escapeHtml(person.name)}</div>
+        <div class="task-list-owner">${avatarMarkup(person, 'avatar mini')}${escapeHtml(person.name)}</div>
         <div><span class="status-pill status-${t.status}">${STATUS_LABEL[t.status]}</span></div>
         <div><span class="priority-chip ${t.priority}">${PRIORITY_LABEL[t.priority]}</span></div>
         <div class="task-list-due ${isOverdue(t)?'is-overdue':''}">${formatDate(t.due)}</div>
@@ -4209,7 +4299,7 @@ roleTag.className =
           <div class="card-kicker"><span class="dept-dot" style="background:${div.color}"></span><span class="div-tag">${escapeHtml(div.name)}</span>${t.product ? `<span class="card-slash">/</span><span class="product-mini-tag">${escapeHtml(t.product)}</span>` : ''}</div>
           <div class="title">${escapeHtml(t.title)}</div>
           <div class="task-card-main-meta">
-            <span class="meta-person-wrap"><span class="avatar" style="background:${person.color}" title="${escapeHtml(person.name)}">${escapeHtml(person.name.slice(0,2).toUpperCase())}</span><span class="meta-person">${escapeHtml(person.name)}</span></span>
+            <span class="meta-person-wrap">${avatarMarkup(person, 'avatar')}<span class="meta-person">${escapeHtml(person.name)}</span></span>
             <span class="task-card-priority"><span class="priority-chip ${t.priority}">${PRIORITY_LABEL[t.priority]}</span></span>
             <span class="task-card-due ${dueClass}">${deadline || formatDate(t.due)}</span>
           </div>
@@ -4391,7 +4481,7 @@ function formatDate(str){
     const workloadMax = Math.max(1,...members.map(m => tasks.filter(t => t.assignee === m.id && t.status !== 'done').length));
     const workloadHtml = members.map(m => {
       const count = tasks.filter(t => t.assignee === m.id && t.status !== 'done').length;
-      return `<div class="dash-work-row"><div class="dash-work-person"><span class="mini-avatar" style="background:${m.color}">${escapeHtml(m.name.slice(0,2).toUpperCase())}</span><strong>${escapeHtml(m.name)}</strong></div><div class="dash-work-track"><span style="width:${Math.round(count/workloadMax*100)}%;background:${m.color}"></span></div><b>${count}</b></div>`;
+      return `<div class="dash-work-row"><div class="dash-work-person">${avatarMarkup(m, 'mini-avatar')}<strong>${escapeHtml(m.name)}</strong></div><div class="dash-work-track"><span style="width:${Math.round(count/workloadMax*100)}%;background:${escapeHtml(m.color || '#999')}"></span></div><b>${count}</b></div>`;
     }).join('');
     const summaryCopy = attentionTotal === 0 ? 'Everything looks clear. Here is the current workspace snapshot.' : `${attentionTotal} item${attentionTotal===1?'':'s'} currently need attention.`;
     const attentionSummary = `<div class="dash-attention-item danger"><span class="dash-attention-icon">!</span><div><strong>${overdue}</strong><small>Overdue</small></div></div><div class="dash-attention-item warning"><span class="dash-attention-icon">◷</span><div><strong>${dueToday}</strong><small>Due today</small></div></div><div class="dash-attention-item review"><span class="dash-attention-icon">↗</span><div><strong>${review}</strong><small>In review</small></div></div>`;
@@ -4466,9 +4556,14 @@ function renderSummary(){
             class="notification-item ${n.read?'':'unread'} ${(n.priority==='high'||n.type==='mention')?'notification-high-priority':''}"
             data-notification-id="${escapeHtml(n.id)}"
           >
-            <div class="notification-title">${escapeHtml(n.title)}</div>
-            <div class="notification-body">${escapeHtml(n.body)}</div>
-            <span class="notification-time">${relativeTime(n.at)}</span>
+            <div class="notification-item-content">
+              ${avatarMarkup(memberOf(n.actorMemberId || n.actorId), 'notification-avatar')}
+              <div class="notification-item-copy">
+                <div class="notification-title">${escapeHtml(n.title)}</div>
+                <div class="notification-body">${escapeHtml(n.body)}</div>
+                <span class="notification-time">${relativeTime(n.at)}</span>
+              </div>
+            </div>
           </button>
         `).join('')
       : '<div class="notification-empty">No notifications in this category.</div>';
@@ -4586,7 +4681,7 @@ function renderSummary(){
       const replyTarget = m.replyToId ? taskMessages.find(x => x.id === m.replyToId) : null;
       const replyPreview = replyTarget ? `<div class="reply-context"><span>Replying to ${escapeHtml(replyTarget.authorName || memberOf(replyTarget.authorId).name)}</span><small>${escapeHtml(replyTarget.text).slice(0,120)}</small></div>` : '';
       return `<div class="chat-message ${isReply?'reply':''}" data-message-id="${m.id}">
-        <div class="chat-avatar" style="background:${person.color}">${escapeHtml(person.name.slice(0,2).toUpperCase())}</div>
+        ${avatarMarkup(person, 'chat-avatar')}
         <div class="chat-bubble">
           <div class="chat-meta"><strong>${escapeHtml(person.name)}</strong><span class="chat-time">${relativeTime(m.at)}</span></div>
           ${replyPreview}<div class="chat-text">${mentionHtml(m.text)}</div>
@@ -4649,7 +4744,7 @@ function renderSummary(){
     if (!candidates.length){ hideMentionSuggestions(); return; }
     box.innerHTML = candidates.map((m,i) => `
       <button type="button" class="mention-option ${i===0?'active':''}" data-mention-index="${i}">
-        <span class="mini-avatar" style="background:${m.color}">${escapeHtml(m.name.slice(0,2).toUpperCase())}</span>
+        ${avatarMarkup(m, 'mini-avatar')}
         <span><span class="mention-name">@${escapeHtml(m.name)}</span><br><span class="mention-role">${escapeHtml(m.role)}</span></span>
       </button>`).join('');
     box.classList.add('open');
@@ -4696,7 +4791,7 @@ function renderSummary(){
     const box=document.getElementById('contributorsList'), btn=document.getElementById('helpTaskBtn');
     if(!box||!btn)return;
     const ids=Array.isArray(task.contributors)?task.contributors:[];
-    box.innerHTML = ids.length ? ids.map(id=>{const m=memberOf(id);return `<span class="contributor-chip"><span class="mini" style="background:${m.color}">${escapeHtml(m.name.slice(0,2).toUpperCase())}</span>${escapeHtml(m.name)}${(isAdmin()||currentRole===task.assignee||id===currentRole)?`<button type="button" data-remove-contributor="${id}" title="Remove contributor">×</button>`:''}</span>`}).join('') : '<span class="dashboard-empty">No contributors yet.</span>';
+    box.innerHTML = ids.length ? ids.map(id=>{const m=memberOf(id);return `<span class="contributor-chip">${avatarMarkup(m, 'mini')}${escapeHtml(m.name)}${(isAdmin()||currentRole===task.assignee||id===currentRole)?`<button type="button" data-remove-contributor="${id}" title="Remove contributor">×</button>`:''}</span>`}).join('') : '<span class="dashboard-empty">No contributors yet.</span>';
     btn.style.display = (currentRole===task.assignee || ids.includes(currentRole)) ? 'none' : 'inline-block';
     box.querySelectorAll('[data-remove-contributor]').forEach(b=>b.addEventListener('click',()=>{task.contributors=(task.contributors||[]).filter(id=>id!==b.dataset.removeContributor);task.updatedAt=new Date().toISOString();save();renderContributors(task);renderAll();}));
   }
@@ -4725,7 +4820,7 @@ function renderSummary(){
     document.getElementById('dStatusPill').className = `status-pill status-${task.status}`;
     document.getElementById('dDeadlineLabel').innerHTML = deadlineLabel(task) || `<span class="deadline-label inline-date">${formatDate(task.due)}</span>`;
     document.getElementById('dDesc').innerHTML = getTaskDescriptionHtml(task) || '<p>No description provided.</p>';
-    document.getElementById('dAssignee').innerHTML = `<span class="avatar" style="background:${person.color};display:inline-flex;vertical-align:middle;margin-right:0.4rem;">${person.name.slice(0,2).toUpperCase()}</span>${person.name}`;
+    document.getElementById('dAssignee').innerHTML = `${avatarMarkup(person, 'avatar')} ${escapeHtml(person.name)}`;
     document.getElementById('dPriority').textContent = PRIORITY_LABEL[task.priority];
     document.getElementById('dDue').textContent = formatDate(task.due);
     document.getElementById('dStatus').textContent = STATUS_LABEL[task.status];
@@ -6816,6 +6911,12 @@ document
 
       if(currentMember){
         currentMember.name = username;
+        currentMember.profilePhoto = editPhotoData || null;
+        currentMember.profilePhotoPosition = {
+          x: editPhotoX,
+          y: editPhotoY,
+          zoom: editPhotoZoom
+        };
         saveMembers();
         try {
           await saveMember(currentMember);
