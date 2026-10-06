@@ -3867,7 +3867,23 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     const initial = escapeHtml(name.slice(0,2).toUpperCase());
 
     if (photo) {
-      return `<span class="${className} avatar-photo" style="background:${safeColor}" title="${safeTitle}"><img src="${escapeHtml(photo)}" alt="" draggable="false" style="transform:translate(${x}px, ${y}px) scale(${zoom})"></span>`;
+      // Profile editor coordinates are based on the 72px profile preview.
+      // Scale them down for compact avatars, then clamp the translation so
+      // the scaled image always covers the circular container. This prevents
+      // the member color from leaking through around the photo.
+      let avatarSize = 22;
+      if (String(className).includes('notification-avatar')) avatarSize = 30;
+      else if (String(className).includes('chat-avatar')) avatarSize = 28;
+      else if (String(className).includes('contributor-chip')) avatarSize = 18;
+
+      const scaleFromProfilePreview = avatarSize / 72;
+      const desiredX = x * scaleFromProfilePreview;
+      const desiredY = y * scaleFromProfilePreview;
+      const maxShift = Math.max(0, (avatarSize * (zoom - 1)) / 2);
+      const safeX = Math.max(-maxShift, Math.min(maxShift, desiredX));
+      const safeY = Math.max(-maxShift, Math.min(maxShift, desiredY));
+
+      return `<span class="${className} avatar-photo" style="background:${safeColor}" title="${safeTitle}"><img src="${escapeHtml(photo)}" alt="" draggable="false" style="transform:translate(${safeX}px, ${safeY}px) scale(${zoom})"></span>`;
     }
 
     return `<span class="${className}" style="background:${safeColor}" title="${safeTitle}">${initial}</span>`;
