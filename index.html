@@ -2743,14 +2743,19 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         if (!memberId) return;
 
         const existsInRemote = remoteMembers.some(member => member.id === memberId);
-        if (existsInRemote) {
-          currentUserMemberEnsured = true;
-          return;
-        }
 
         try {
+          // Even when the member document already exists, keep the shared
+          // member record synchronized with the signed-in user's profile.
+          // This is especially important for profilePhoto/profilePhotoPosition
+          // so other users can render the same avatar in tasks, comments,
+          // contributors, mentions, workload, and notifications.
           await ensureCurrentUserMember(profile, user);
           currentUserMemberEnsured = true;
+
+          if (!existsInRemote) {
+            console.log('✅ Current user member dibuat di Firestore:', memberId);
+          }
         } catch (error) {
           console.error('❌ Gagal memastikan current user member:', error);
         }
