@@ -2451,7 +2451,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         existingMember.profilePhotoPosition = {
           x: Number(profile.profilePhotoPosition?.x || 0),
           y: Number(profile.profilePhotoPosition?.y || 0),
-          zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+          zoom: Number(profile.profilePhotoPosition?.zoom || 1.5),
+          baseSize: Number(profile.profilePhotoPosition?.baseSize || 72)
         };
       }
 
@@ -2472,7 +2473,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
               profilePhotoPosition: {
                 x: Number(profile.profilePhotoPosition?.x || 0),
                 y: Number(profile.profilePhotoPosition?.y || 0),
-                zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+                zoom: Number(profile.profilePhotoPosition?.zoom || 1.5),
+                baseSize: Number(profile.profilePhotoPosition?.baseSize || 72)
               }
             }
           : {})
@@ -2650,7 +2652,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         profilePhotoPosition: {
           x: Number(profile.profilePhotoPosition?.x || 0),
           y: Number(profile.profilePhotoPosition?.y || 0),
-          zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+          zoom: Number(profile.profilePhotoPosition?.zoom || 1.5),
+          baseSize: Number(profile.profilePhotoPosition?.baseSize || 72)
         }
       });
       saveMembers();
@@ -2664,7 +2667,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
       const desiredPosition = {
         x: Number(profile.profilePhotoPosition?.x || 0),
         y: Number(profile.profilePhotoPosition?.y || 0),
-        zoom: Number(profile.profilePhotoPosition?.zoom || 1.5)
+        zoom: Number(profile.profilePhotoPosition?.zoom || 1.5),
+        baseSize: Number(profile.profilePhotoPosition?.baseSize || 72)
       };
 
       if (!existing) {
@@ -2691,7 +2695,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           (existing.profilePhoto || null) !== desiredProfilePhoto ||
           Number(existingPosition.x || 0) !== desiredPosition.x ||
           Number(existingPosition.y || 0) !== desiredPosition.y ||
-          Number(existingPosition.zoom || 1.5) !== desiredPosition.zoom;
+          Number(existingPosition.zoom || 1.5) !== desiredPosition.zoom ||
+        Number(existingPosition.baseSize || 72) !== desiredPosition.baseSize;
 
         if (needsProfileSync) {
           await saveMember({
@@ -3850,40 +3855,56 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   function divisionOf(id){ return DIVISIONS.find(d => d.id === id); }
   function memberOf(id){ return members.find(m => m.id === id) || (id === 'admin' || id === '__admin__' ? { name: 'Admin', color: '#344054' } : { name: '?', color: '#999' }); }
 
+  function avatarTransform(position, avatarSize){
+    // Avatar positions are stored in the coordinate space of the preview
+    // that was used to edit the photo. New profile edits use 92px; older
+    // onboarding profiles use 72px.
+    const rawBaseSize = Number(position?.baseSize);
+    const baseSize = Number.isFinite(rawBaseSize) && rawBaseSize > 0
+      ? rawBaseSize
+      : 72;
+
+    const rawX = Number(position?.x);
+    const rawY = Number(position?.y);
+    const rawZoom = Number(position?.zoom);
+
+    const x = Number.isFinite(rawX) ? Math.max(-400, Math.min(400, rawX)) : 0;
+    const y = Number.isFinite(rawY) ? Math.max(-400, Math.min(400, rawY)) : 0;
+    const zoom = Number.isFinite(rawZoom) ? Math.max(1, Math.min(3, rawZoom)) : 1.5;
+
+    // Convert the saved drag distance proportionally to the actual avatar
+    // size so every surface keeps the same focal point.
+    const ratio = avatarSize / baseSize;
+    const desiredX = x * ratio;
+    const desiredY = y * ratio;
+
+    // Keep the image covering the circular container.
+    const maxShift = Math.max(0, (avatarSize * (zoom - 1)) / 2);
+    const safeX = Math.max(-maxShift, Math.min(maxShift, desiredX));
+    const safeY = Math.max(-maxShift, Math.min(maxShift, desiredY));
+
+    return { x: safeX, y: safeY, zoom };
+  }
+
   function avatarMarkup(member, className='avatar', title=null){
     const person = member || { name: '?', color: '#999' };
     const name = String(person.name || '?');
     const color = String(person.color || '#999');
     const photo = person.profilePhoto || null;
-    const position = person.profilePhotoPosition || {};
-    const rawX = Number(position.x);
-    const rawY = Number(position.y);
-    const rawZoom = Number(position.zoom);
-    const x = Number.isFinite(rawX) ? Math.max(-400, Math.min(400, rawX)) : 0;
-    const y = Number.isFinite(rawY) ? Math.max(-400, Math.min(400, rawY)) : 0;
-    const zoom = Number.isFinite(rawZoom) ? Math.max(1, Math.min(4, rawZoom)) : 1.5;
     const safeTitle = escapeHtml(title || name);
     const safeColor = escapeHtml(color);
     const initial = escapeHtml(name.slice(0,2).toUpperCase());
 
     if (photo) {
-      // Profile editor coordinates are based on the 72px profile preview.
-      // Scale them down for compact avatars, then clamp the translation so
-      // the scaled image always covers the circular container. This prevents
-      // the member color from leaking through around the photo.
-      let avatarSize = 22;
+      let avatarSize = 24;
       if (String(className).includes('notification-avatar')) avatarSize = 30;
       else if (String(className).includes('chat-avatar')) avatarSize = 28;
       else if (String(className).includes('contributor-chip')) avatarSize = 18;
+      else if (String(className).includes('mini-avatar') || String(className).includes('avatar mini')) avatarSize = 22;
 
-      const scaleFromProfilePreview = avatarSize / 72;
-      const desiredX = x * scaleFromProfilePreview;
-      const desiredY = y * scaleFromProfilePreview;
-      const maxShift = Math.max(0, (avatarSize * (zoom - 1)) / 2);
-      const safeX = Math.max(-maxShift, Math.min(maxShift, desiredX));
-      const safeY = Math.max(-maxShift, Math.min(maxShift, desiredY));
+      const { x, y, zoom } = avatarTransform(person.profilePhotoPosition, avatarSize);
 
-      return `<span class="${className} avatar-photo" style="background:${safeColor}" title="${safeTitle}"><img src="${escapeHtml(photo)}" alt="" draggable="false" style="transform:translate(${safeX}px, ${safeY}px) scale(${zoom})"></span>`;
+      return `<span class="${className} avatar-photo" style="background:${safeColor}" title="${safeTitle}"><img src="${escapeHtml(photo)}" alt="" draggable="false" style="transform:translate(${x}px, ${y}px) scale(${zoom})"></span>`;
     }
 
     return `<span class="${className}" style="background:${safeColor}" title="${safeTitle}">${initial}</span>`;
@@ -6535,7 +6556,8 @@ completeProfileButton?.addEventListener('click', async () => {
         profilePhotoPosition: {
           x: photoX,
           y: photoY,
-          zoom: photoZoom
+          zoom: photoZoom,
+          baseSize: 72
         }
       }
     );
@@ -6917,7 +6939,8 @@ document
             profilePhotoPosition: {
               x: editPhotoX,
               y: editPhotoY,
-              zoom: editPhotoZoom
+              zoom: editPhotoZoom,
+              baseSize: 92
             }
           }
         );
@@ -6936,7 +6959,8 @@ document
         currentMember.profilePhotoPosition = {
           x: editPhotoX,
           y: editPhotoY,
-          zoom: editPhotoZoom
+          zoom: editPhotoZoom,
+          baseSize: 92
         };
         saveMembers();
         try {
@@ -6946,7 +6970,7 @@ document
         }
       }
 
-      renderRoleSelect();
+      renderAll();
 
       document
         .getElementById('profileEditOverlay')
