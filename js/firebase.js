@@ -88,6 +88,77 @@ async function getMember(memberId) {
   };
 }
 
+
+function subscribeToDepartments(onChange, onError) {
+  const departmentsRef = collection(db, "departments");
+
+  return onSnapshot(
+    departmentsRef,
+    snapshot => {
+      const departments = snapshot.docs
+        .map(docSnap => ({
+          ...docSnap.data(),
+          id: String(docSnap.id)
+        }))
+        .filter(department => department.id && department.id !== 'all');
+
+      onChange(departments, snapshot);
+    },
+    error => {
+      console.error("Realtime departments listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
+async function saveDepartment(department) {
+  const departmentId = String(department?.id || '').trim();
+  if (!departmentId || departmentId === 'all') {
+    throw new Error("Department ID tidak valid.");
+  }
+
+  const departmentRef = doc(db, "departments", departmentId);
+  await setDoc(departmentRef, {
+    ...department,
+    id: departmentId,
+    name: String(department?.name || 'Unnamed Department').trim() || 'Unnamed Department',
+    color: department?.color || '#0F766E',
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+
+  const snapshot = await getDoc(departmentRef);
+  return snapshot.exists() ? { ...snapshot.data(), id: String(snapshot.id) } : null;
+}
+
+async function deleteDepartment(departmentId) {
+  const id = String(departmentId || '').trim();
+  if (!id || id === 'all') throw new Error("Department ID tidak valid.");
+  await deleteDoc(doc(db, "departments", id));
+}
+
+async function seedDefaultDepartmentsIfMissing(departments) {
+  if (!Array.isArray(departments)) return;
+
+  for (const department of departments) {
+    if (!department?.id || department.id === 'all') continue;
+
+    const departmentRef = doc(db, "departments", String(department.id));
+
+    await runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(departmentRef);
+      if (snapshot.exists()) return;
+
+      transaction.set(departmentRef, {
+        id: String(department.id),
+        name: String(department.name || 'Unnamed Department').trim() || 'Unnamed Department',
+        color: department.color || '#0F766E',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    });
+  }
+}
+
 function subscribeToMembers(onChange, onError) {
   const membersRef = collection(db, "members");
 
@@ -210,6 +281,12 @@ async function seedProductGroupIfMissing(divisionId, items) {
   });
 
   return normalizedItems;
+}
+
+async function deleteProductGroup(divisionId) {
+  const id = String(divisionId || '').trim();
+  if (!id) throw new Error("Division ID product tidak boleh kosong.");
+  await deleteDoc(doc(db, "products", id));
 }
 
 async function saveProductGroupAndTasks(divisionId, items, tasks) {
@@ -940,6 +1017,17 @@ async function replaceWorkspaceData(payload, actorUid) {
     }))
     .filter(member => member.id);
 
+  const normalizedDepartments = Array.isArray(payload?.departments)
+    ? payload.departments
+        .map(department => ({
+          ...department,
+          id: String(department?.id || '').trim(),
+          name: String(department?.name || 'Unnamed Department').trim() || 'Unnamed Department',
+          color: department?.color || '#0F766E'
+        }))
+        .filter(department => department.id && department.id !== 'all')
+    : null;
+
   const normalizedProducts = {};
   if (payload?.products && typeof payload.products === 'object') {
     for (const [divisionId, items] of Object.entries(payload.products)) {
@@ -1009,9 +1097,10 @@ async function replaceWorkspaceData(payload, actorUid) {
       migratedByUid: actorUid
     }));
 
-  const [existingTasks, existingMembers, existingProducts, existingActivities, existingComments, notificationSnapshot] = await Promise.all([
+  const [existingTasks, existingMembers, existingDepartments, existingProducts, existingActivities, existingComments, notificationSnapshot] = await Promise.all([
     getAllWorkspaceCollectionDocs('tasks'),
     getAllWorkspaceCollectionDocs('members'),
+    getAllWorkspaceCollectionDocs('departments'),
     getAllWorkspaceCollectionDocs('products'),
     getAllWorkspaceCollectionDocs('activities'),
     getAllWorkspaceCollectionDocs('comments'),
@@ -1021,6 +1110,9 @@ async function replaceWorkspaceData(payload, actorUid) {
   const deleteOperations = [];
   for (const item of existingTasks) deleteOperations.push({ type: 'delete', ref: doc(db, 'tasks', item.id) });
   for (const item of existingMembers) deleteOperations.push({ type: 'delete', ref: doc(db, 'members', item.id) });
+  if (normalizedDepartments) {
+    for (const item of existingDepartments) deleteOperations.push({ type: 'delete', ref: doc(db, 'departments', item.id) });
+  }
   for (const item of existingProducts) deleteOperations.push({ type: 'delete', ref: doc(db, 'products', item.id) });
   for (const item of existingActivities) deleteOperations.push({ type: 'delete', ref: doc(db, 'activities', item.id) });
   for (const item of existingComments) deleteOperations.push({ type: 'delete', ref: doc(db, 'comments', item.id) });
@@ -1036,6 +1128,9 @@ async function replaceWorkspaceData(payload, actorUid) {
   const writeOperations = [];
   for (const task of normalizedTasks) writeOperations.push({ type: 'set', ref: doc(db, 'tasks', task.id), data: task });
   for (const member of normalizedMembers) writeOperations.push({ type: 'set', ref: doc(db, 'members', member.id), data: member });
+  if (normalizedDepartments) {
+    for (const department of normalizedDepartments) writeOperations.push({ type: 'set', ref: doc(db, 'departments', department.id), data: department });
+  }
   for (const [divisionId, items] of Object.entries(normalizedProducts)) {
     writeOperations.push({
       type: 'set',
@@ -1074,6 +1169,7 @@ async function replaceWorkspaceData(payload, actorUid) {
   return {
     tasks: normalizedTasks,
     members: normalizedMembers,
+    departments: normalizedDepartments,
     products: normalizedProducts,
     activities: normalizedActivities,
     comments: normalizedComments,
@@ -1101,6 +1197,10 @@ window.loginWithGoogle = loginWithGoogle;
 window.getUserProfile = getUserProfile;
 window.getMember = getMember;
 window.subscribeToMembers = subscribeToMembers;
+window.subscribeToDepartments = subscribeToDepartments;
+window.saveDepartment = saveDepartment;
+window.deleteDepartment = deleteDepartment;
+window.seedDefaultDepartmentsIfMissing = seedDefaultDepartmentsIfMissing;
 window.saveMember = saveMember;
 window.deleteMember = deleteMember;
 window.subscribeToProducts = subscribeToProducts;
@@ -1117,6 +1217,7 @@ window.markNotificationRead = markNotificationRead;
 window.markAllNotificationsRead = markAllNotificationsRead;
 window.saveProductGroup = saveProductGroup;
 window.saveProductGroupAndTasks = saveProductGroupAndTasks;
+window.deleteProductGroup = deleteProductGroup;
 window.seedProductGroupIfMissing = seedProductGroupIfMissing;
 window.createUserProfile = createUserProfile;
 window.updateUserProfile = updateUserProfile;
@@ -1140,6 +1241,10 @@ export {
   getUserProfile,
   getMember,
   subscribeToMembers,
+  subscribeToDepartments,
+  saveDepartment,
+  deleteDepartment,
+  seedDefaultDepartmentsIfMissing,
   saveMember,
   deleteMember,
   subscribeToProducts,
@@ -1156,6 +1261,7 @@ export {
   markAllNotificationsRead,
   saveProductGroup,
   saveProductGroupAndTasks,
+  deleteProductGroup,
   seedProductGroupIfMissing,
   createUserProfile,
   getTasks,

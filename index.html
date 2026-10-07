@@ -1902,6 +1902,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 </div>
 <ul class="div-list" id="divList"></ul>
 <button class="members-btn" id="membersBtn">⚙ Manage Members</button>
+<button class="members-btn" id="departmentsBtn">✎ Manage Departments</button>
 <button class="members-btn" id="productsBtn">＋ Manage Products</button>
 <button class="members-btn signout-btn" id="signOutBtn" type="button">↪ Sign out</button>
 </div>
@@ -2094,6 +2095,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 </div>
 <!-- PRODUCTS MODAL -->
 <div class="overlay" id="productsOverlay"><div class="modal product-manager-modal"><h3>Manage Products</h3><p class="import-note" style="margin-top:-.7rem;margin-bottom:1rem;">Add or rename the workstreams shown under each department.</p><div id="productManagerBody"></div><div class="modal-actions"><button class="btn-secondary" id="closeProductsBtn">Done</button></div></div></div>
+<div class="overlay" id="departmentsOverlay"><div class="modal product-manager-modal"><h3>Manage Departments</h3><p class="import-note" style="margin-top:-.7rem;margin-bottom:1rem;">Add, rename, or remove workspace departments. Department IDs stay stable so existing tasks keep their assignment.</p><div id="departmentManagerBody"></div><div class="modal-actions"><button class="btn-secondary" id="closeDepartmentsBtn">Done</button></div></div></div>
 <!-- NOTIFICATION SETTINGS MODAL -->
 <div class="overlay" id="notificationOverlay">
 <div class="modal">
@@ -2300,11 +2302,16 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   getUserProfile,
   getMember,
   subscribeToMembers,
+  subscribeToDepartments,
+  saveDepartment,
+  deleteDepartment,
+  seedDefaultDepartmentsIfMissing,
   saveMember,
   deleteMember,
   subscribeToProducts,
   saveProductGroup,
   saveProductGroupAndTasks,
+  deleteProductGroup,
   subscribeToActivities,
   addActivity,
   subscribeToComments,
@@ -2323,7 +2330,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   deleteTask,
   deleteTasksBatch
 } from './js/firebase.js';
-  export const DIVISIONS = [
+  const DEFAULT_DEPARTMENTS = [
   { id: 'pir', name: 'Product Innovation & Research', color: '#0F766E' },
   { id: 'mkt', name: 'Marketing & Digital', color: '#E2583E' },
   { id: 'ops', name: 'Operations', color: '#C7861B' },
@@ -2376,6 +2383,7 @@ LEGACY_BUSINESS_STORAGE_KEYS.forEach(key => {
 
 // Shared business data comes exclusively from Firestore.
 // Realtime listeners populate these in-memory arrays after Firebase Auth is ready.
+let departments = DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
 let products = {};
 let tasks = [];
 let members = [];
@@ -2489,6 +2497,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let tasksRealtimeReadyPromise = Promise.resolve();
   let unsubscribeMembersRealtime = null;
   let membersRealtimeUserUid = null;
+  let unsubscribeDepartmentsRealtime = null;
+  let departmentsRealtimeUserUid = null;
+  let departmentsRealtimeReadyPromise = Promise.resolve();
   let membersRealtimeReadyPromise = Promise.resolve();
   let unsubscribeProductsRealtime = null;
   let productsRealtimeUserUid = null;
@@ -2770,6 +2781,78 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   }
 
 
+  async function startDepartmentsRealtime(profile, user){
+    if (!user?.uid) return;
+
+    if (departmentsRealtimeUserUid === user.uid && unsubscribeDepartmentsRealtime) {
+      return departmentsRealtimeReadyPromise;
+    }
+
+    if (typeof unsubscribeDepartmentsRealtime === 'function') {
+      unsubscribeDepartmentsRealtime();
+      unsubscribeDepartmentsRealtime = null;
+    }
+
+    departmentsRealtimeUserUid = user.uid;
+
+    departmentsRealtimeReadyPromise = new Promise(resolve => {
+      let firstSnapshotHandled = false;
+      const finishFirstSnapshot = () => {
+        if (!firstSnapshotHandled) {
+          firstSnapshotHandled = true;
+          resolve();
+        }
+      };
+
+      unsubscribeDepartmentsRealtime = subscribeToDepartments(
+        async remoteDepartments => {
+          try {
+            if (remoteDepartments.length > 0) {
+              departments = remoteDepartments
+                .map(department => ({
+                  id: String(department.id),
+                  name: String(department.name || 'Unnamed Department').trim() || 'Unnamed Department',
+                  color: department.color || '#0F766E'
+                }))
+                .filter(department => department.id && department.id !== 'all')
+                .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+              console.log('🔄 Realtime departments synced:', departments.length);
+              renderAll();
+              const departmentsOverlayEl = document.getElementById('departmentsOverlay');
+              if (departmentsOverlayEl?.classList.contains('open')) renderDepartmentManager();
+              finishFirstSnapshot();
+              return;
+            }
+
+            departments = DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
+
+            if (isAdmin()) {
+              console.log('⏳ Firestore departments kosong. Memulai initial migration...');
+              await seedDefaultDepartmentsIfMissing(departments);
+              console.log('✅ Initial departments migration completed:', departments.length);
+            } else {
+              console.log('ℹ️ Firestore departments kosong; memakai bootstrap defaults sampai admin menginisialisasi workspace.');
+            }
+
+            renderAll();
+            finishFirstSnapshot();
+          } catch (error) {
+            console.error('❌ Pemrosesan realtime departments gagal:', error);
+            finishFirstSnapshot();
+          }
+        },
+        error => {
+          console.error('❌ Realtime department listener error:', error);
+          finishFirstSnapshot();
+        }
+      );
+    });
+
+    return departmentsRealtimeReadyPromise;
+  }
+
+
   async function startProductsRealtime(profile, user){
     if (!user?.uid) return;
 
@@ -2804,7 +2887,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
             if (hasRemoteProducts) {
               const nextProducts = {};
 
-              DIVISIONS.forEach(division => {
+              departments.forEach(division => {
                 nextProducts[division.id] = Array.isArray(
                   remoteProducts[division.id]
                 )
@@ -3151,6 +3234,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     const listeners = [
       ['tasks', unsubscribeTasksRealtime],
       ['members', unsubscribeMembersRealtime],
+      ['departments', unsubscribeDepartmentsRealtime],
       ['products', unsubscribeProductsRealtime],
       ['activities', unsubscribeActivitiesRealtime],
       ['comments', unsubscribeCommentsRealtime],
@@ -3167,6 +3251,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     unsubscribeTasksRealtime = null;
     unsubscribeMembersRealtime = null;
+    unsubscribeDepartmentsRealtime = null;
     unsubscribeProductsRealtime = null;
     unsubscribeActivitiesRealtime = null;
     unsubscribeCommentsRealtime = null;
@@ -3174,6 +3259,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     tasksRealtimeUserUid = null;
     membersRealtimeUserUid = null;
+    departmentsRealtimeUserUid = null;
     productsRealtimeUserUid = null;
     activitiesRealtimeUserUid = null;
     commentsRealtimeUserUid = null;
@@ -3182,6 +3268,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     tasksRealtimeReadyPromise = Promise.resolve();
     membersRealtimeReadyPromise = Promise.resolve();
+    departmentsRealtimeReadyPromise = Promise.resolve();
     productsRealtimeReadyPromise = Promise.resolve();
     activitiesRealtimeReadyPromise = Promise.resolve();
     commentsRealtimeReadyPromise = Promise.resolve();
@@ -3521,7 +3608,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return `<span class="overdue-badge">⚠ Overdue ${days} days</span>`;
   }
   function saveAll(){ /* Firestore source of truth */ }
-  function divisionOf(id){ return DIVISIONS.find(d => d.id === id); }
+  function divisionOf(id){ return departments.find(d => d.id === id); }
   function memberOf(id){ return members.find(m => m.id === id) || (id === 'admin' || id === '__admin__' ? { name: 'Admin', color: '#344054' } : { name: '?', color: '#999' }); }
 
   function avatarTransform(position, avatarSize){
@@ -3664,6 +3751,9 @@ roleTag.className =
 
   document.getElementById('membersBtn').style.display =
     isAdmin() ? 'block' : 'none';
+
+  document.getElementById('departmentsBtn').style.display =
+    isAdmin() ? 'block' : 'none';
 }
 
   function renderSidebar(){
@@ -3676,7 +3766,7 @@ roleTag.className =
       <li class="nav-section-label workspace-label">Workspace</li>
       <li class="div-item ${activeDepartmenton==='all' && !activeProduct && !dashboardMode?'active':''}" data-div="all">
         <span class="dot" style="background:var(--ink-soft)"></span><span>All Departments</span><span class="count">${allCount}</span></li>`;
-    DIVISIONS.forEach(d => {
+    departments.forEach(d => {
       const count = tasks.filter(t => t.division === d.id).length;
       const expanded = expandedDepartments.has(d.id);
       const deptActive = activeDepartmenton === d.id && !activeProduct && !dashboardMode;
@@ -4108,6 +4198,7 @@ function formatDate(str){
       unarchive: 'restored a task',
       changes: 'requested changes',
       contributor: 'joined a task as a contributor',
+      department: 'managed a department',
       delete: 'deleted a task',
       update: 'updated a record'
     };
@@ -4180,7 +4271,7 @@ function formatDate(str){
       ['In Review','review',review,'#B07A00'],
       ['Done','done',done,'#2F7D4A']
     ].map(([label,id,count,color]) => `<div class="dash-status-row"><div class="dash-status-label"><span class="dash-status-dot" style="background:${color}"></span><strong>${label}</strong><b>${count}</b></div><div class="dash-status-track"><span style="width:${Math.round(count/statusTotal*100)}%;background:${color}"></span></div><small>${Math.round(count/statusTotal*100)}%</small></div>`).join('');
-    const byDivision = DIVISIONS.map(d => {
+    const byDivision = departments.map(d => {
       const arr = visible.filter(t => t.division === d.id);
       const dDone = arr.filter(t => t.status === 'done').length;
       const dActive = arr.filter(t => t.status === 'progress').length;
@@ -4224,7 +4315,7 @@ function renderSummary(){
       <div class="summary-card"><span class="k">Active Tasks</span><span class="v">${visible.filter(t=>t.status==='progress').length}</span><div class="subv">Active tasks</div></div>
       <div class="summary-card"><span class="k">In Review</span><span class="v">${visible.filter(t=>t.status==='review').length}</span><div class="subv">Requires attention</div></div>
       <div class="summary-card"><span class="k">Overdue</span><span class="v" style="color:${overdue?'var(--high)':'var(--ink)'}">${overdue}</span><div class="subv">Unfinished tasks past their due date</div></div>`;
-    document.getElementById('divSummary').innerHTML = DIVISIONS.map(d => {
+    document.getElementById('divSummary').innerHTML = departments.map(d => {
       const arr = tasks.filter(t=>t.division===d.id), dDone=arr.filter(t=>t.status==='done').length;
       return `<button class="div-mini" data-summary-div="${d.id}"><strong>${d.name}</strong> · ${dDone}/${arr.length} completed (${arr.length?Math.round(dDone/arr.length*100):0}%)</button>`;
     }).join('');
@@ -4982,7 +5073,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       }
     });
 
-    deptSelect.innerHTML = DIVISIONS.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    deptSelect.innerHTML = departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
     document.getElementById('fAssignee').innerHTML = assigneeMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}</option>`).join('');
     document.getElementById('fContributors').innerHTML = contributorMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}${m.active === false ? ' (Inactive)' : ''}</option>`).join('');
     if (selectedDivision) deptSelect.value = selectedDivision;
@@ -5315,12 +5406,13 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const exportedComments = await getAllComments();
 
       const payload = {
-        version: 6,
+        version: 7,
         source: 'firestore',
         exportedAt: new Date().toISOString(),
         exportedByUid: currentUserUid || null,
         tasks,
         members,
+        departments,
         products,
         activities,
         comments: exportedComments,
@@ -5371,10 +5463,11 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
 
       const confirmed = confirm(
         `Import Firestore workspace data?\n\n` +
-        `This replaces Tasks, Members, Products, Activities, Comments, ` +
+        `This replaces Tasks, Members, Departments, Products, Activities, Comments, ` +
         `and the currently signed-in user's Notifications in Firestore.\n\n` +
         `Tasks: ${data.tasks.length}\n` +
         `Members: ${data.members.length}\n` +
+        `Departments: ${Array.isArray(data.departments) ? data.departments.length : 0}\n` +
         `Comments: ${comments.length}\n` +
         `Notifications: ${notificationsToImport.length}\n\n` +
         `This cannot be undone from the UI.`
@@ -5385,6 +5478,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const result = await replaceWorkspaceData({
         tasks: data.tasks,
         members: data.members,
+        departments: Array.isArray(data.departments) ? data.departments : undefined,
         products: data.products && typeof data.products === 'object' ? data.products : {},
         activities: Array.isArray(data.activities) ? data.activities : [],
         comments,
@@ -5392,6 +5486,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       }, currentUserUid);
 
       tasks = result.tasks.map(normalizeTask);
+      departments = Array.isArray(result.departments) && result.departments.length ? result.departments.map(d => ({ ...d })) : departments;
       members = result.members.map(member => ({
         ...member,
         email: member.email || `${member.id}@twc.local`,
@@ -5638,13 +5733,250 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     checkDeadlineNotifications().catch(error => console.error('❌ Deadline notification check gagal:', error));
   }, 60000);
 
+
+  // ---- department management ----
+  const departmentsOverlay = document.getElementById('departmentsOverlay');
+
+  function departmentSlug(name) {
+    const base = String(name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    return base || `department-${Date.now()}`;
+  }
+
+  function nextDepartmentId(name) {
+    const base = departmentSlug(name);
+    let candidate = base;
+    let index = 2;
+
+    while (departments.some(d => d.id === candidate)) {
+      candidate = `${base}-${index}`;
+      index += 1;
+    }
+
+    return candidate;
+  }
+
+  function departmentColor(index = 0) {
+    const palette = [
+      '#0F766E', '#E2583E', '#C7861B', '#6E59A5', '#3B5BA5',
+      '#2F7D4A', '#8A5A44', '#5B6B7A', '#A04B78', '#4F7CAC'
+    ];
+    return palette[index % palette.length];
+  }
+
+  function renderDepartmentManager() {
+    const box = document.getElementById('departmentManagerBody');
+    if (!box) return;
+
+    box.innerHTML = `
+      <div class="department-manager-toolbar">
+        <button type="button" class="product-add-trigger" id="addDepartmentManagerBtn">
+          + Add department
+        </button>
+      </div>
+      <div class="department-manager-list">
+        ${departments.map((department, index) => {
+          const taskCount = tasks.filter(task => task.division === department.id).length;
+          const productCountForDepartment = productListForDivision(department.id).length;
+
+          return `
+            <div class="department-manager-row" data-department-id="${escapeHtml(department.id)}">
+              <input
+                type="color"
+                value="${escapeHtml(department.color || departmentColor(index))}"
+                data-department-color
+                aria-label="Color for ${escapeHtml(department.name)}"
+              >
+              <div class="department-manager-main">
+                <input
+                  type="text"
+                  value="${escapeHtml(department.name)}"
+                  maxlength="80"
+                  data-department-name
+                  aria-label="Department name"
+                >
+                <small>${taskCount} task${taskCount === 1 ? '' : 's'} · ${productCountForDepartment} product${productCountForDepartment === 1 ? '' : 's'}</small>
+              </div>
+              <button
+                type="button"
+                class="department-delete-btn"
+                data-delete-department
+                title="Delete department"
+                aria-label="Delete ${escapeHtml(department.name)}"
+              >✕</button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    const addBtn = document.getElementById('addDepartmentManagerBtn');
+    addBtn?.addEventListener('click', async () => {
+      const name = prompt('Department name:');
+      if (name == null) return;
+
+      const trimmedName = name.trim();
+      if (!trimmedName) return;
+
+      if (departments.some(d => d.name.toLowerCase() === trimmedName.toLowerCase())) {
+        alert('That department name is already used.');
+        return;
+      }
+
+      const department = {
+        id: nextDepartmentId(trimmedName),
+        name: trimmedName,
+        color: departmentColor(departments.length),
+        createdAt: new Date().toISOString()
+      };
+
+      try {
+        await saveDepartment(department);
+        logActivity(null, 'department', `Created department “${trimmedName}”`);
+        renderDepartmentManager();
+      } catch (error) {
+        console.error('❌ Gagal menambah department:', error);
+        alert(`Department gagal ditambahkan.\n\n${error?.message || 'Unknown error'}`);
+      }
+    });
+
+    box.querySelectorAll('[data-department-name]').forEach(input => {
+      input.addEventListener('change', async event => {
+        const row = event.target.closest('[data-department-id]');
+        const id = row?.dataset.departmentId;
+        const department = departments.find(item => item.id === id);
+        if (!department) return;
+
+        const newName = event.target.value.trim();
+        if (!newName) {
+          event.target.value = department.name;
+          return;
+        }
+
+        if (
+          departments.some(item =>
+            item.id !== department.id &&
+            item.name.toLowerCase() === newName.toLowerCase()
+          )
+        ) {
+          alert('That department name is already used.');
+          event.target.value = department.name;
+          return;
+        }
+
+        const oldName = department.name;
+        if (oldName === newName) return;
+
+        department.name = newName;
+
+        try {
+          await saveDepartment(department);
+          logActivity(null, 'department', `Renamed department “${oldName}” → “${newName}”`);
+          renderAll();
+          renderDepartmentManager();
+        } catch (error) {
+          department.name = oldName;
+          event.target.value = oldName;
+          console.error('❌ Gagal rename department:', error);
+          alert(`Department gagal diubah.\n\n${error?.message || 'Unknown error'}`);
+        }
+      });
+    });
+
+    box.querySelectorAll('[data-department-color]').forEach(input => {
+      input.addEventListener('change', async event => {
+        const row = event.target.closest('[data-department-id]');
+        const id = row?.dataset.departmentId;
+        const department = departments.find(item => item.id === id);
+        if (!department) return;
+
+        const oldColor = department.color;
+        department.color = event.target.value;
+
+        try {
+          await saveDepartment(department);
+          logActivity(null, 'department', `Changed color for “${department.name}”`);
+          renderAll();
+        } catch (error) {
+          department.color = oldColor;
+          event.target.value = oldColor;
+          console.error('❌ Gagal mengubah warna department:', error);
+          alert(`Department color gagal disimpan.\n\n${error?.message || 'Unknown error'}`);
+        }
+      });
+    });
+
+    box.querySelectorAll('[data-delete-department]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const id = button.closest('[data-department-id]')?.dataset.departmentId;
+        const department = departments.find(item => item.id === id);
+        if (!department) return;
+
+        const taskCount = tasks.filter(task => task.division === department.id).length;
+        const productCountForDepartment = productListForDivision(department.id).length;
+
+        if (taskCount > 0 || productCountForDepartment > 0) {
+          alert(
+            `Department “${department.name}” cannot be deleted yet.\n\n` +
+            `${taskCount} task${taskCount === 1 ? '' : 's'} and ` +
+            `${productCountForDepartment} product${productCountForDepartment === 1 ? '' : 's'} still belong to this department.\n\n` +
+            'Move or remove those items first.'
+          );
+          return;
+        }
+
+        const confirmed = confirm(`Delete department “${department.name}”?`);
+        if (!confirmed) return;
+
+        try {
+          await deleteProductGroup(department.id);
+          await deleteDepartment(department.id);
+          logActivity(null, 'department', `Deleted department “${department.name}”`);
+          departments = departments.filter(item => item.id !== department.id);
+          products = { ...products };
+
+          if (activeDepartmenton === department.id) {
+            activeDepartmenton = 'all';
+            activeProduct = null;
+          }
+          expandedDepartments.delete(department.id);
+
+          renderDepartmentManager();
+          renderAll();
+        } catch (error) {
+          console.error('❌ Gagal menghapus department:', error);
+          alert(`Department gagal dihapus.\n\n${error?.message || 'Unknown error'}`);
+        }
+      });
+    });
+  }
+
+  document.getElementById('departmentsBtn')?.addEventListener('click', () => {
+    if (!isAdmin()) return;
+    renderDepartmentManager();
+    departmentsOverlay?.classList.add('open');
+  });
+
+  document.getElementById('closeDepartmentsBtn')?.addEventListener('click', () => {
+    departmentsOverlay?.classList.remove('open');
+    renderAll();
+  });
+
+  departmentsOverlay?.addEventListener('click', event => {
+    if (event.target === departmentsOverlay) departmentsOverlay.classList.remove('open');
+  });
+
   // ---- product management ----
   const productsOverlay=document.getElementById('productsOverlay');
 
   function renderProductManager(){
     const box=document.getElementById('productManagerBody');
 
-    box.innerHTML=DIVISIONS.map(d=>{
+    box.innerHTML=departments.map(d=>{
       const arr=productListForDivision(d.id);
 
       return `
@@ -6800,6 +7132,7 @@ onAuthStateChanged(auth, async (user) => {
     });
 
     await startMembersRealtime(profile, user);
+    await startDepartmentsRealtime(profile, user);
     await startProductsRealtime(profile, user);
     await startTasksRealtime(profile, user);
     await startActivitiesRealtime(profile, user);
@@ -6855,6 +7188,7 @@ window.syncLegacyWorkspaceIdentity(
 );
 
 await startMembersRealtime(profile, user);
+await startDepartmentsRealtime(profile, user);
 await startProductsRealtime(profile, user);
 await startTasksRealtime(profile, user);
 await startActivitiesRealtime(profile, user);
