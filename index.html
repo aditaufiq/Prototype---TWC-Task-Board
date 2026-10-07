@@ -2634,7 +2634,7 @@ LEGACY_BUSINESS_STORAGE_KEYS.forEach(key => {
   try { localStorage.removeItem(key); } catch (error) {}
 });
 
-// Shared business data comes exclusively from Firestore.
+// Stage 9.2: Firestore is the only source of truth for shared business data.
 // Realtime listeners populate these in-memory arrays after Firebase Auth is ready.
 let departments = DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
 let products = {};
@@ -2844,12 +2844,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
     return tasksRealtimeReadyPromise;
   }
-
-  // Shared business data is written to Firestore by the CRUD functions.
-  // These no-op hooks keep older UI paths harmless during the cleanup.
-  function save(){ /* Firestore source of truth */ }
-  function saveMembers(){ /* Firestore source of truth */ }
-  function saveProducts(){ /* Firestore source of truth */ }
 
   async function ensureCurrentUserMember(profile, user){
     if (!profile || !user?.uid) return;
@@ -3251,7 +3245,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
               });
 
               products = nextProducts;
-              saveProducts();
+              
 
               console.log(
                 '🔄 Realtime products synced:',
@@ -4364,7 +4358,7 @@ roleTag.className =
           }
         });
         selectedTaskIds.clear();
-        save();
+        
         renderAll();
       } catch(error) {
         console.error('❌ Bulk update task gagal:', error);
@@ -4392,7 +4386,7 @@ roleTag.className =
               logActivity(next.id,'archive','Task archived');
             });
             selectedTaskIds.clear();
-            save();
+            
             renderAll();
           } catch(error) {
             console.error('❌ Bulk archive gagal:', error);
@@ -4412,7 +4406,7 @@ roleTag.className =
           const idsSet=new Set(ids);
           tasks=tasks.filter(t=>!idsSet.has(t.id));
           selectedTaskIds.clear();
-          save();
+          
           renderAll();
         } catch(error) {
           console.error('❌ Bulk delete gagal:', error);
@@ -4524,7 +4518,7 @@ roleTag.className =
               Object.assign(task, updatedTask);
               logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
               if (task.assignee !== currentRole && currentRole !== 'admin') makeNotification(task.assignee, 'status', 'Task status updated', `${task.title} → ${STATUS_LABEL[task.status]}`, task.id);
-              save();
+              
               renderAll();
             })
             .catch(error => {
@@ -4947,7 +4941,24 @@ function renderSummary(){
     const ids=Array.isArray(task.contributors)?task.contributors:[];
     box.innerHTML = ids.length ? ids.map(id=>{const m=memberOf(id);return `<span class="contributor-chip">${avatarMarkup(m, 'mini')}${escapeHtml(m.name)}${(isAdmin()||currentRole===task.assignee||id===currentRole)?`<button type="button" data-remove-contributor="${id}" title="Remove contributor">×</button>`:''}</span>`}).join('') : '<span class="dashboard-empty">No contributors yet.</span>';
     btn.style.display = (currentRole===task.assignee || ids.includes(currentRole)) ? 'none' : 'inline-block';
-    box.querySelectorAll('[data-remove-contributor]').forEach(b=>b.addEventListener('click',()=>{task.contributors=(task.contributors||[]).filter(id=>id!==b.dataset.removeContributor);task.updatedAt=new Date().toISOString();save();renderContributors(task);renderAll();}));
+    box.querySelectorAll('[data-remove-contributor]').forEach(b=>b.addEventListener('click', async ()=>{
+      const updatedTask = {
+        ...task,
+        contributors: (task.contributors || []).filter(id => id !== b.dataset.removeContributor),
+        updatedAt: new Date().toISOString()
+      };
+
+      try {
+        await updateTask(updatedTask.id, updatedTask);
+        Object.assign(task, updatedTask);
+        logActivity(task.id, 'contributor', `${memberOf(b.dataset.removeContributor)?.name || 'A contributor'} was removed`);
+        renderContributors(task);
+        renderAll();
+      } catch (error) {
+        console.error('❌ Gagal menghapus contributor:', error);
+        alert('Contributor gagal diperbarui di server.');
+      }
+    }));
   }
   function renderAttachments(task){
     const sec=document.getElementById('attachmentsSection'),box=document.getElementById('dAttachmentsList'); const arr=Array.isArray(task.attachments)?task.attachments:[];
@@ -5051,7 +5062,37 @@ function renderSummary(){
     detailOverlay.classList.add('open');
   }
 
-  document.getElementById('helpTaskBtn').addEventListener('click',()=>{const task=tasks.find(t=>t.id===currentDetailId);if(!task||currentRole==='admin'||currentRole===task.assignee)return;task.contributors=Array.isArray(task.contributors)?task.contributors:[];if(!task.contributors.includes(currentRole)){task.contributors.push(currentRole);task.updatedAt=new Date().toISOString();logActivity(task.id,'contributor',`${memberOf(currentRole).name} is helping`);save();makeNotification(task.assignee,'message',`${memberOf(currentRole).name} is helping`,`${memberOf(currentRole).name} joined as a contributor on ${task.title}`,task.id);renderContributors(task);renderAll();}});
+  document.getElementById('helpTaskBtn').addEventListener('click', async ()=>{
+    const task = tasks.find(t => t.id === currentDetailId);
+    if (!task || currentRole === 'admin' || currentRole === task.assignee) return;
+
+    const contributors = Array.isArray(task.contributors) ? [...task.contributors] : [];
+    if (contributors.includes(currentRole)) return;
+
+    const updatedTask = {
+      ...task,
+      contributors: [...contributors, currentRole],
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      await updateTask(updatedTask.id, updatedTask);
+      Object.assign(task, updatedTask);
+      logActivity(task.id, 'contributor', `${memberOf(currentRole).name} is helping`);
+      makeNotification(
+        task.assignee,
+        'message',
+        `${memberOf(currentRole).name} is helping`,
+        `${memberOf(currentRole).name} joined as a contributor on ${task.title}`,
+        task.id
+      );
+      renderContributors(task);
+      renderAll();
+    } catch (error) {
+      console.error('❌ Gagal menambahkan contributor:', error);
+      alert('Contributor gagal diperbarui di server.');
+    }
+  });
 
   document.getElementById('statusActionBtn').addEventListener('click', async () => {
     const task = tasks.find(t => t.id === currentDetailId);
@@ -5081,7 +5122,7 @@ function renderSummary(){
       await updateTask(updatedTask.id, updatedTask, taskNotificationRequests);
       Object.assign(task, updatedTask);
       logActivity(task.id, 'status', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]}`);
-      save();
+      
       closeDetail();
       renderAll();
     } catch(error) {
@@ -5118,7 +5159,7 @@ function renderSummary(){
           await updateTask(updatedTask.id, updatedTask, taskNotificationRequests);
           Object.assign(task, updatedTask);
           logActivity(task.id, 'changes', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]} (changes requested)`);
-          save();
+          
           closeDetail();
           renderAll();
         } catch(error) {
@@ -5138,7 +5179,7 @@ function renderSummary(){
       await updateTask(updatedTask.id, updatedTask);
       Object.assign(task, updatedTask);
       logActivity(task.id,nextArchived?'archive':'unarchive',nextArchived?'Task archived':'Task restored to active board');
-      save();
+      
       closeDetail();
       renderAll();
     } catch(error) {
@@ -5180,7 +5221,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           await deleteTask(currentDetailId);
           logActivity(currentDetailId, 'delete', 'Task deleted');
           tasks = tasks.filter(t => t.id !== currentDetailId);
-          save();
+          
           renderRecentActivity();
           closeDetail();
           renderAll();
@@ -5747,7 +5788,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     return;
   }
 }
-    save();
+    
     overlay.classList.remove('open');
     resetForm();
     renderAll();
@@ -6578,7 +6619,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
             await window.saveProductGroup(divId, nextItems);
 
             products[divId] = nextItems;
-            saveProducts();
+            
 
             renderProductManager();
             renderAll();
@@ -6659,7 +6700,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           );
 
           products[divId]=nextItems;
-          saveProducts();
+          
 
           affectedTasks.forEach(updatedTask=>{
             const localTask=tasks.find(
@@ -6671,7 +6712,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
             }
           });
 
-          save();
+          
           renderProductManager();
           renderAll();
         } catch(error) {
@@ -6769,7 +6810,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
               );
 
               products[divId]=nextItems;
-              saveProducts();
+              
 
               affectedTasks.forEach(updatedTask=>{
                 const localTask=tasks.find(
@@ -6781,7 +6822,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
                 }
               });
 
-              save();
+              
 
               if(
                 activeProduct===oldName &&
