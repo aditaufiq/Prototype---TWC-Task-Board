@@ -2305,18 +2305,17 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   subscribeToProducts,
   saveProductGroup,
   saveProductGroupAndTasks,
-  seedProductGroupIfMissing,
   subscribeToActivities,
   addActivity,
   subscribeToComments,
   getAllComments,
+  replaceWorkspaceData,
   addComment,
   addCommentWithNotifications,
   subscribeToNotifications,
   addNotificationForUser,
   markNotificationRead,
   markAllNotificationsRead,
-  getTasks,
   subscribeToTasks,
   addTask,
   updateTask,
@@ -2332,13 +2331,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   { id: 'fin', name: 'Finance & Admin', color: '#3B5BA5' },
 ];
 
-export const DEFAULT_PRODUCTS = {
-  pir: ['Wastra', 'Ticket Bundling', 'Research & Insights'],
-  mkt: ['Social Media', 'Digital Campaign'],
-  ops: ['Visitor Flow', 'Operations'],
-  gx: ['Visitor Experience', 'Survey & Feedback'],
-  fin: ['Budget & Reporting']
-};
 
 export const STATUSES = [
   { id: 'todo', name: 'To Do' },
@@ -2366,44 +2358,38 @@ export const STATUS_LABEL = {
   done: 'Done'
 };
 
-export const DEFAULT_MEMBERS = [
-  { id: 'adit', name: 'Adit', email: 'adit@twc.local', color: '#E85D9E', role: 'member', active: true },
-  { id: 'tata', name: 'Tata', email: 'tata@twc.local', color: '#E8B93D', role: 'admin', active: true },
-  { id: 'rafi', name: 'Rafi', email: 'rafi@twc.local', color: '#4C9BE8', role: 'member', active: true },
-  { id: 'dini', name: 'Dini', email: 'dini@twc.local', color: '#5FBF7A', role: 'member', active: true },
+
+
+// Remove obsolete business-data keys from previous versions.
+// They are not read as application state anymore.
+const LEGACY_BUSINESS_STORAGE_KEYS = [
+  'taskboard_data_v2',
+  'taskboard_members_v2',
+  'taskboard_products_v1',
+  'taskboard_activity_v2',
+  'taskboard_messages_v1',
+  'taskboard_notifications_v1'
 ];
+LEGACY_BUSINESS_STORAGE_KEYS.forEach(key => {
+  try { localStorage.removeItem(key); } catch (error) {}
+});
 
-export const SEED = [
-  { id: 1, title: 'Riset preferensi wisatawan domestik 2026', description: 'Kumpulkan data preferensi wisatawan domestik dari survei Q2-Q3 untuk input strategi produk baru.', division: 'pir', assignee: 'adit', priority: 'high', due: '2026-09-20', status: 'progress', product: 'Research & Insights' },
-  { id: 2, title: 'Prototipe tiket bundling 3 candi', description: 'Rancang skema harga dan alur pembelian tiket bundling Borobudur-Prambanan-Ratu Boko.', division: 'pir', assignee: 'rafi', priority: 'medium', due: '2026-09-25', status: 'todo', product: 'Ticket Bundling' },
-  { id: 3, title: 'Kampanye konten Instagram sunrise tour', description: 'Buat rangkaian konten foto & video untuk promosi paket sunrise tour bulan depan.', division: 'mkt', assignee: 'dini', priority: 'medium', due: '2026-09-18', status: 'progress', product: 'Social Media' },
-  { id: 4, title: 'Evaluasi alur antrian loket weekend', description: 'Amati dan catat titik-titik penumpukan antrian loket saat akhir pekan, usulkan perbaikan alur.', division: 'ops', assignee: 'tata', priority: 'high', due: '2026-09-15', status: 'review', product: 'Visitor Flow' },
-  { id: 5, title: 'Survei kepuasan pengunjung Q3', description: 'Sebar kuesioner kepuasan pengunjung dan rekap hasilnya jadi laporan ringkas.', division: 'gx', assignee: 'adit', priority: 'low', due: '2026-09-30', status: 'todo', product: 'Survey & Feedback' },
-  { id: 6, title: 'Rekap anggaran promosi bulan lalu', description: 'Kumpulkan bukti pengeluaran promosi bulan lalu dan susun rekap ke format laporan bulanan.', division: 'fin', assignee: 'rafi', priority: 'low', due: '2026-09-10', status: 'done', product: 'Budget & Reporting' },
-  { id: 7, title: 'Analisis data kunjungan musim liburan', description: 'Olah data jumlah kunjungan selama musim liburan untuk melihat tren dibanding tahun lalu.', division: 'pir', assignee: 'adit', priority: 'medium', due: '2026-09-28', status: 'todo', product: 'Research & Insights' },
-];
-
-// Firestore is the source of truth for shared products.
-// localStorage is kept only as a cache/fallback while the realtime
-// listener is connecting.
-let products = JSON.parse(localStorage.getItem('taskboard_products_v1') || 'null')
-  || JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
-
-  let tasks = JSON.parse(localStorage.getItem('taskboard_data_v2') || 'null') || SEED;
-  let members = JSON.parse(localStorage.getItem('taskboard_members_v2') || 'null') || DEFAULT_MEMBERS;
-  let activities = JSON.parse(localStorage.getItem('taskboard_activity_v2') || 'null') || [];
-  let messages = JSON.parse(localStorage.getItem('taskboard_messages_v1') || 'null') || [];
-  // Personal notifications are sourced from Firestore.
-  // localStorage is only a per-user cache and never the source of truth.
-  let notifications = [];
-  let notificationKnownIds = new Set();
-  let deadlineCheckInProgress = false;
-  let activeDepartmenton = 'all';
-  let activeProduct = null;
-  let expandedDepartments = new Set();
-  let currentRole = 'admin';
-  let currentAccessLevel = 'standard';
-  let currentUserProfile = null;
+// Shared business data comes exclusively from Firestore.
+// Realtime listeners populate these in-memory arrays after Firebase Auth is ready.
+let products = {};
+let tasks = [];
+let members = [];
+let activities = [];
+let messages = [];
+let notifications = [];
+let notificationKnownIds = new Set();
+let deadlineCheckInProgress = false;
+let activeDepartmenton = 'all';
+let activeProduct = null;
+let expandedDepartments = new Set();
+let currentRole = 'admin';
+let currentAccessLevel = 'standard';
+let currentUserProfile = null;
 function makeFirebaseMemberId(profile, user){
   const username = String(
     profile?.username ||
@@ -2501,29 +2487,22 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let unsubscribeTasksRealtime = null;
   let tasksRealtimeUserUid = null;
   let tasksRealtimeReadyPromise = Promise.resolve();
-  let taskMigrationInProgress = false;
   let unsubscribeMembersRealtime = null;
   let membersRealtimeUserUid = null;
   let membersRealtimeReadyPromise = Promise.resolve();
-  let memberMigrationInProgress = false;
   let unsubscribeProductsRealtime = null;
   let productsRealtimeUserUid = null;
   let productsRealtimeReadyPromise = Promise.resolve();
-  let productMigrationInProgress = false;
   let unsubscribeActivitiesRealtime = null;
   let activitiesRealtimeUserUid = null;
   let activitiesRealtimeReadyPromise = Promise.resolve();
-  let activityMigrationInProgress = false;
   let unsubscribeCommentsRealtime = null;
   let commentsRealtimeUserUid = null;
   let commentsRealtimeTaskId = null;
   let commentsRealtimeReadyPromise = Promise.resolve();
-  let commentsMigrationChecked = false;
-  let commentsMigrationInProgress = false;
   let unsubscribeNotificationsRealtime = null;
   let notificationsRealtimeUserUid = null;
   let notificationsRealtimeReadyPromise = Promise.resolve();
-  let notificationMigrationInProgress = false;
   let notificationRealtimeInitialized = false;
   let currentUserUid = null;
 
@@ -2562,7 +2541,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     }
 
     tasksRealtimeUserUid = user.uid;
-    taskMigrationInProgress = false;
 
     tasksRealtimeReadyPromise = new Promise(resolve => {
       let firstSnapshotHandled = false;
@@ -2579,38 +2557,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           try {
             if (remoteTasks.length > 0) {
               tasks = remoteTasks.map(normalizeTask);
-              localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks));
               console.log('🔄 Realtime tasks synced:', tasks.length);
               renderAll();
-              if (!taskMigrationInProgress) finishFirstSnapshot();
+              finishFirstSnapshot();
               return;
             }
-
-            // Transitional migration: only Admin may seed an empty Firestore
-            // collection from the current local task data.
-            if (!taskMigrationInProgress && profile?.accessLevel === 'all' && tasks.length > 0) {
-              taskMigrationInProgress = true;
-              console.log('⏳ Firestore tasks kosong. Memulai initial migration...');
-
-              try {
-                for (const task of [...tasks]) {
-                  await addTask(task);
-                }
-                console.log('✅ Initial task migration completed:', tasks.length);
-              } catch (migrationError) {
-                console.error('❌ Initial task migration gagal:', migrationError);
-              } finally {
-                taskMigrationInProgress = false;
-                localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks));
-                renderAll();
-                finishFirstSnapshot();
-              }
-              return;
-            }
-
-            // Keep the existing local cache during this transitional phase.
-            // Once Firestore has data, the realtime snapshot becomes authoritative.
-            console.log('Firestore tasks masih kosong. Menjaga local task cache sementara.');
+            tasks = [];
+            console.log('🔄 Realtime tasks synced: 0');
             renderAll();
             finishFirstSnapshot();
           } catch (error) {
@@ -2628,8 +2581,10 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return tasksRealtimeReadyPromise;
   }
 
-  function save(){ localStorage.setItem('taskboard_data_v2', JSON.stringify(tasks)); }
-  function saveMembers(){ localStorage.setItem('taskboard_members_v2', JSON.stringify(members)); }
+  // Shared business data is written to Firestore by the CRUD functions.
+  // These no-op hooks keep older UI paths harmless during the cleanup.
+  function save(){ /* Firestore source of truth */ }
+  function saveMembers(){ /* Firestore source of truth */ }
 
   async function ensureCurrentUserMember(profile, user){
     if (!profile || !user?.uid) return;
@@ -2656,7 +2611,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           baseSize: Number(profile.profilePhotoPosition?.baseSize || 72)
         }
       });
-      saveMembers();
       renderAll();
     }
 
@@ -2728,7 +2682,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     }
 
     membersRealtimeUserUid = user.uid;
-    memberMigrationInProgress = false;
 
     membersRealtimeReadyPromise = new Promise(resolve => {
       let firstSnapshotHandled = false;
@@ -2778,8 +2731,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                   active: m.active !== false
                 }))
                 .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-
-              saveMembers();
               console.log('🔄 Realtime members synced:', members.length);
               renderAll();
 
@@ -2793,29 +2744,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
 
               await ensureCurrentMemberIfMissing(remoteMembers);
 
-              if (!memberMigrationInProgress) finishFirstSnapshot();
-              return;
-            }
-
-            // Transitional migration: only Admin may seed an empty Firestore
-            // collection from the current local member list.
-            if (!memberMigrationInProgress && profile?.accessLevel === 'all' && members.length > 0) {
-              memberMigrationInProgress = true;
-              console.log('⏳ Firestore members kosong. Memulai initial migration...');
-
-              try {
-                for (const member of [...members]) {
-                  await saveMember(member);
-                }
-                console.log('✅ Initial members migration completed:', members.length);
-              } catch (migrationError) {
-                console.error('❌ Initial members migration gagal:', migrationError);
-              } finally {
-                memberMigrationInProgress = false;
-                saveMembers();
-                renderAll();
-                finishFirstSnapshot();
-              }
+              finishFirstSnapshot();
               return;
             }
 
@@ -2854,7 +2783,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     }
 
     productsRealtimeUserUid = user.uid;
-    productMigrationInProgress = false;
 
     productsRealtimeReadyPromise = new Promise(resolve => {
       let firstSnapshotHandled = false;
@@ -2908,46 +2836,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
               return;
             }
 
-            if (
-              !productMigrationInProgress &&
-              profile?.accessLevel === 'all' &&
-              Object.keys(products).length > 0
-            ) {
-              productMigrationInProgress = true;
-
-              console.log(
-                '⏳ Firestore products kosong. Memulai initial migration...'
-              );
-
-              try {
-                for (const division of DIVISIONS) {
-                  await seedProductGroupIfMissing(
-                    division.id,
-                    productListForDivision(division.id)
-                  );
-                }
-
-                console.log(
-                  '✅ Initial products migration completed:',
-                  Object.values(products).flat().length
-                );
-              } catch (migrationError) {
-                console.error(
-                  '❌ Initial products migration gagal:',
-                  migrationError
-                );
-              } finally {
-                productMigrationInProgress = false;
-                finishFirstSnapshot();
-              }
-
-              return;
-            }
-
-            console.log(
-              'Firestore products masih kosong. Menunggu Admin melakukan migration.'
-            );
-
             renderAll();
             finishFirstSnapshot();
           } catch (error) {
@@ -2984,7 +2872,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     }
 
     activitiesRealtimeUserUid = user.uid;
-    activityMigrationInProgress = false;
 
     activitiesRealtimeReadyPromise = new Promise(resolve => {
       let firstSnapshotHandled = false;
@@ -3011,53 +2898,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                   at: activity.at || new Date().toISOString()
                 }))
                 .sort((a, b) => new Date(b.at) - new Date(a.at));
-
-              saveActivities();
               console.log('🔄 Realtime activities synced:', activities.length);
               renderAll();
               finishFirstSnapshot();
               return;
             }
 
-            // Only an all-access user may migrate the old local activity cache.
-            // Legacy records keep their original actorId/actorName and are marked
-            // explicitly instead of inventing a historical Firebase UID.
-            if (
-              !activityMigrationInProgress &&
-              profile?.accessLevel === 'all' &&
-              activities.length > 0
-            ) {
-              activityMigrationInProgress = true;
-              console.log('⏳ Firestore activities kosong. Memulai initial migration...');
-
-              try {
-                const legacyActivities = activities.map(activity => ({
-                  ...activity,
-                  id: undefined,
-                  legacy: true,
-                  migratedFromLocal: true,
-                  actorUid: null,
-                  migratedByUid: user.uid,
-                  at: activity.at || new Date().toISOString()
-                }));
-
-                for (const activity of legacyActivities) {
-                  await addActivity(activity);
-                }
-
-                console.log('✅ Initial activities migration completed:', legacyActivities.length);
-              } catch (migrationError) {
-                console.error('❌ Initial activities migration gagal:', migrationError);
-              } finally {
-                activityMigrationInProgress = false;
-                finishFirstSnapshot();
-              }
-
-              return;
-            }
-
             activities = [];
-            saveActivities();
             console.log('🔄 Realtime activities synced: 0');
             renderAll();
             finishFirstSnapshot();
@@ -3076,83 +2923,11 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return activitiesRealtimeReadyPromise;
   }
 
-  function notificationCacheKey(uid){
-    const safeUid = String(uid || '').trim();
-    return safeUid ? `taskboard_notifications_v2_${safeUid}` : null;
-  }
-
-  function readNotificationCache(uid){
-    const key = notificationCacheKey(uid);
-    if (!key) return [];
-
-    try {
-      const parsed = JSON.parse(localStorage.getItem(key) || 'null');
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      console.warn('⚠️ Notification cache tidak bisa dibaca:', error);
-      return [];
-    }
-  }
-
-  function readLegacyNotificationCache(){
-    try {
-      const parsed = JSON.parse(
-        localStorage.getItem('taskboard_notifications_v1') || 'null'
-      );
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      return [];
-    }
-  }
-
   function notificationToastCacheKey(uid){
     const safeUid = String(uid || '').trim();
     return safeUid
       ? `taskboard_toasted_notifications_v2_${safeUid}`
       : 'taskboard_toasted_notifications_v2_guest';
-  }
-
-  async function migrateLegacyNotificationsIfNeeded(profile, user){
-    if (notificationMigrationInProgress || !user?.uid) return;
-
-    const legacyMine = readLegacyNotificationCache()
-      .filter(n => String(n.userId || '') === String(currentRole))
-      .map(n => ({ ...n }));
-
-    if (!legacyMine.length) return;
-
-    notificationMigrationInProgress = true;
-
-    try {
-      for (const legacy of legacyMine) {
-        const legacyId = String(
-          legacy.id || `legacy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        );
-
-        await addNotificationForUser(
-          user.uid,
-          {
-            ...legacy,
-            recipientUid: user.uid,
-            recipientMemberId: currentRole,
-            sourceType: 'legacy',
-            sourceId: legacyId,
-            legacy: true,
-            migratedByUid: user.uid,
-            read: legacy.read === true,
-            createdAt: legacy.createdAt || legacy.at || new Date().toISOString(),
-            at: legacy.at || legacy.createdAt || new Date().toISOString()
-          },
-          `legacy-${legacyId}`
-        );
-      }
-
-      console.log('✅ Initial personal notifications migration completed:', legacyMine.length);
-    } catch (error) {
-      console.error('❌ Initial personal notifications migration gagal:', error);
-    } finally {
-      notificationMigrationInProgress = false;
-    }
   }
 
   async function startNotificationsRealtime(profile, user){
@@ -3168,28 +2943,11 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     }
 
     notificationsRealtimeUserUid = user.uid;
-    notificationMigrationInProgress = false;
     notificationRealtimeInitialized = false;
     currentUserUid = user.uid;
-
-    // Never expose another user's notification cache while this user's
-    // Firestore snapshot is loading.
-    notifications = readNotificationCache(user.uid)
-      .map(notification => ({
-        ...notification,
-        id: String(notification.id || ''),
-        taskId: notification.taskId == null ? null : String(notification.taskId),
-        commentId: notification.commentId == null ? null : String(notification.commentId),
-        read: notification.read === true,
-        at: notification.at || notification.createdAt || new Date().toISOString()
-      }))
-      .filter(notification => notification.id)
-      .sort((a, b) => new Date(b.at) - new Date(a.at));
-
-    notificationKnownIds = new Set(
-      notifications.map(notification => String(notification.id))
-    );
-
+    // Notifications are sourced exclusively from the signed-in user's Firestore subcollection.
+    notifications = [];
+    notificationKnownIds = new Set();
     renderNotifications();
 
     notificationsRealtimeReadyPromise = new Promise(resolve => {
@@ -3230,16 +2988,11 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
             notificationKnownIds = new Set(
               notifications.map(notification => String(notification.id))
             );
-            saveNotifications();
 
             console.log('🔔 Realtime personal notifications synced:', notifications.length);
 
             if (isInitialSnapshot) {
               notificationRealtimeInitialized = true;
-
-              if (!notificationMigrationInProgress && remoteNotifications.length === 0) {
-                await migrateLegacyNotificationsIfNeeded(profile, user);
-              }
 
               // Catch up deadline reminders whenever the first authoritative
               // Firestore notification snapshot is available.
@@ -3309,61 +3062,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     renderNotifications();
   }
 
-  async function migrateLegacyCommentsIfNeeded(profile, user){
-    if (commentsMigrationChecked || !user?.uid || profile?.accessLevel !== 'all') return;
-    if (commentsMigrationInProgress) return;
-
-    commentsMigrationInProgress = true;
-
-    try {
-      const remoteComments = await getAllComments();
-
-      if (remoteComments.length > 0 || messages.length === 0) {
-        commentsMigrationChecked = true;
-        return;
-      }
-
-      console.log('⏳ Firestore comments kosong. Memulai initial migration...');
-
-      const legacyIdMap = new Map(
-        messages.map(message => [
-          String(message.id),
-          `legacy-comment-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-        ])
-      );
-
-      for (const message of messages) {
-        const oldId = String(message.id);
-        const comment = {
-          id: legacyIdMap.get(oldId),
-          taskId: String(message.taskId || ''),
-          authorId: String(message.authorId || 'unknown'),
-          authorName: message.authorName || 'Unknown',
-          authorUid: null,
-          text: String(message.text || ''),
-          at: message.at || new Date().toISOString(),
-          createdAt: message.at || new Date().toISOString(),
-          replyToId: message.replyToId ? (legacyIdMap.get(String(message.replyToId)) || null) : null,
-          mentions: Array.isArray(message.mentions) ? message.mentions.map(String) : [],
-          legacy: true,
-          migratedFromLocal: true,
-          migratedByUid: user.uid
-        };
-
-        if (!comment.taskId || !comment.text) continue;
-        await addComment(comment);
-      }
-
-      console.log('✅ Initial comments migration completed:', messages.length);
-      commentsMigrationChecked = true;
-    } catch (migrationError) {
-      console.error('❌ Initial comments migration gagal:', migrationError);
-      // Leave checked=false so a later admin session can retry if needed.
-    } finally {
-      commentsMigrationInProgress = false;
-    }
-  }
-
   async function startCommentsRealtime(profile, user, taskId){
     if (!user?.uid || !taskId) return Promise.resolve();
 
@@ -3381,9 +3079,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     commentsRealtimeUserUid = user.uid;
     commentsRealtimeTaskId = normalizedTaskId;
 
-    // One-time compatibility migration: preserve legacy local discussions when
-    // the new shared comments collection is still empty.
-    await migrateLegacyCommentsIfNeeded(profile, user);
 
     commentsRealtimeReadyPromise = new Promise(resolve => {
       let firstSnapshotHandled = false;
@@ -3416,7 +3111,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
             // active task gets its authoritative realtime data from Firestore.
             const otherTaskMessages = messages.filter(m => String(m.taskId) !== normalizedTaskId);
             messages = [...otherTaskMessages, ...normalized];
-            saveMessages();
 
             console.log('🔄 Realtime comments synced:', normalized.length, 'for', normalizedTaskId);
 
@@ -3494,36 +3188,13 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     notificationsRealtimeReadyPromise = Promise.resolve();
 
     notificationRealtimeInitialized = false;
-    notificationMigrationInProgress = false;
-    memberMigrationInProgress = false;
-    productMigrationInProgress = false;
-    activityMigrationInProgress = false;
-    taskMigrationInProgress = false;
-    commentsMigrationInProgress = false;
   }
 
-  // Firestore is the source of truth for shared activity history.
-  // localStorage is retained only as a cache/fallback while the listener connects.
-  function saveActivities(){ localStorage.setItem('taskboard_activity_v2', JSON.stringify(activities)); }
-  function saveMessages(){ localStorage.setItem('taskboard_messages_v1', JSON.stringify(messages)); }
-
-  function saveNotifications(){
-    const key = notificationCacheKey(currentUserUid);
-    if (!key) return;
-
-    try {
-      localStorage.setItem(
-        key,
-        JSON.stringify(notifications.slice(0, 3000))
-      );
-    } catch (error) {
-      console.warn('⚠️ Notification cache tidak bisa disimpan:', error);
-    }
-  }
-
-  // Shared product state lives in Firestore; localStorage is only a cache.
-  function saveProducts(){ localStorage.setItem('taskboard_products_v1', JSON.stringify(products)); }
-
+  // Shared business data is persisted in Firestore. These compatibility hooks
+  // intentionally do not write to browser storage.
+  function saveActivities(){ /* Firestore source of truth */ }
+  function saveMessages(){ /* Firestore source of truth */ }
+  function saveNotifications(){ /* Firestore source of truth */ }
   function productListForDivision(divId){
     return Array.isArray(products[divId]) ? products[divId] : [];
   }
@@ -3784,7 +3455,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     };
 
     notifications = [notification, ...notifications.filter(n => String(n.id) !== String(notification.id))].slice(0, 3000);
-    saveNotifications();
     renderNotifications();
 
     const persistableSelfTypes = new Set(['deadline', 'overdue']);
@@ -3830,7 +3500,6 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     };
 
     activities = [activity, ...activities].slice(0, 200);
-    saveActivities();
     renderRecentActivity();
 
     addActivity(activity).catch(error => {
@@ -3851,7 +3520,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     const days = Math.max(1, Math.round((today - due) / 86400000));
     return `<span class="overdue-badge">⚠ Overdue ${days} days</span>`;
   }
-  function saveAll(){ save(); saveMembers(); saveActivities(); saveMessages(); saveNotifications(); saveProducts(); }
+  function saveAll(){ /* Firestore source of truth */ }
   function divisionOf(id){ return DIVISIONS.find(d => d.id === id); }
   function memberOf(id){ return members.find(m => m.id === id) || (id === 'admin' || id === '__admin__' ? { name: 'Admin', color: '#344054' } : { name: '?', color: '#999' }); }
 
@@ -4618,10 +4287,8 @@ function renderSummary(){
         if (!n.read && currentUserUid) {
           await markNotificationRead(currentUserUid, n.id);
           n.read = true;
-          saveNotifications();
         } else if (!n.read) {
           n.read = true;
-          saveNotifications();
         }
       } catch(error) {
         console.error('❌ Mark notification read gagal:', error);
@@ -5642,28 +5309,116 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
 
 
   // ---- backup / import ----
-  document.getElementById('exportBtn').addEventListener('click', () => {
-    const payload = { version: 5, exportedAt: new Date().toISOString(), tasks, members, products, activities, messages, notifications };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `taskboard-backup-${new Date().toISOString().slice(0,10)}.json`; a.click();
-    URL.revokeObjectURL(url);
+  document.getElementById('exportBtn').addEventListener('click', async () => {
+    try {
+      // Comments are loaded per open task, so export the full Firestore comments collection.
+      const exportedComments = await getAllComments();
+
+      const payload = {
+        version: 6,
+        source: 'firestore',
+        exportedAt: new Date().toISOString(),
+        exportedByUid: currentUserUid || null,
+        tasks,
+        members,
+        products,
+        activities,
+        comments: exportedComments,
+        notifications
+      };
+
+      const blob = new Blob(
+        [JSON.stringify(payload, null, 2)],
+        { type: 'application/json' }
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `taskboard-firestore-backup-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('❌ Export Firestore gagal:', error);
+      alert(`Export gagal.\n\n${error?.message || 'Unknown error'}`);
+    }
   });
-  document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
-  document.getElementById('importFile').addEventListener('change', (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        if (!Array.isArray(data.tasks) || !Array.isArray(data.members)) throw new Error('Invalid backup format');
-        if (!confirm(`Import will replace the current local data with ${data.tasks.length} tasks. Continue?`)) return;
-        tasks = data.tasks.map(t=>({ ...t, product:t.product||'', createdBy:t.createdBy||'admin', createdAt:t.createdAt||new Date().toISOString(), updatedAt:t.updatedAt||t.createdAt||new Date().toISOString(), statusHistory:Array.isArray(t.statusHistory)&&t.statusHistory.length?t.statusHistory:[{status:t.status||'todo',at:t.createdAt||new Date().toISOString(),by:t.createdBy||'admin'}],contributors:Array.isArray(t.contributors)?t.contributors:[],attachments:Array.isArray(t.attachments)?t.attachments:[], archived:t.archived===true })); members = data.members; products = data.products && typeof data.products==='object' ? data.products : JSON.parse(JSON.stringify(DEFAULT_PRODUCTS)); activities = Array.isArray(data.activities)?data.activities:[]; messages = Array.isArray(data.messages)?data.messages:[]; notifications = Array.isArray(data.notifications)?data.notifications:[];
-        saveAll(); currentRole = 'admin'; activeDepartmenton = 'all'; renderAll(); alert('Data imported successfully.');
-      } catch (err) { alert('Import failed: ' + err.message); }
+
+  document.getElementById('importBtn').addEventListener('click', () => {
+    if (!isAdmin()) {
+      alert('Only Admin can import workspace data.');
+      return;
+    }
+    document.getElementById('importFile').click();
+  });
+
+  document.getElementById('importFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const data = JSON.parse(await file.text());
+
+      if (!Array.isArray(data.tasks) || !Array.isArray(data.members)) {
+        throw new Error('Invalid backup format: tasks and members are required.');
+      }
+
+      const comments = Array.isArray(data.comments)
+        ? data.comments
+        : (Array.isArray(data.messages) ? data.messages : []);
+      const notificationsToImport = Array.isArray(data.notifications)
+        ? data.notifications
+        : [];
+
+      const confirmed = confirm(
+        `Import Firestore workspace data?\n\n` +
+        `This replaces Tasks, Members, Products, Activities, Comments, ` +
+        `and the currently signed-in user's Notifications in Firestore.\n\n` +
+        `Tasks: ${data.tasks.length}\n` +
+        `Members: ${data.members.length}\n` +
+        `Comments: ${comments.length}\n` +
+        `Notifications: ${notificationsToImport.length}\n\n` +
+        `This cannot be undone from the UI.`
+      );
+
+      if (!confirmed) return;
+
+      const result = await replaceWorkspaceData({
+        tasks: data.tasks,
+        members: data.members,
+        products: data.products && typeof data.products === 'object' ? data.products : {},
+        activities: Array.isArray(data.activities) ? data.activities : [],
+        comments,
+        notifications: notificationsToImport
+      }, currentUserUid);
+
+      tasks = result.tasks.map(normalizeTask);
+      members = result.members.map(member => ({
+        ...member,
+        email: member.email || `${member.id}@twc.local`,
+        role: member.role || 'member',
+        active: member.active !== false
+      }));
+      products = result.products;
+      activities = result.activities
+        .slice()
+        .sort((a, b) => new Date(b.at) - new Date(a.at));
+      messages = [];
+      notifications = result.notifications
+        .slice()
+        .sort((a, b) => new Date(b.at) - new Date(a.at));
+      notificationKnownIds = new Set(notifications.map(n => String(n.id)));
+
+      activeDepartmenton = 'all';
+      activeProduct = null;
+      selectedTaskIds.clear();
+      renderAll();
+      alert('Firestore data imported successfully.');
+    } catch (error) {
+      console.error('❌ Import Firestore gagal:', error);
+      alert(`Import failed.\n\n${error?.message || 'Unknown error'}`);
+    } finally {
       e.target.value = '';
-    };
-    reader.readAsText(file);
+    }
   });
 
   // ---- notification center ----
@@ -5851,7 +5606,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       }
 
       unread.forEach(n => n.read = true);
-      saveNotifications();
       renderNotifications();
     } catch (error) {
       console.error('❌ Mark all notifications read gagal:', error);
@@ -6288,7 +6042,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const member = members[idx];
       if (!member) return;
       member.name = e.target.value.trim() || 'Unnamed Member';
-      saveMembers();
       renderRoleSelect();
       try {
         await saveMember(member);
@@ -6303,7 +6056,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const member = members[idx];
       if (!member) return;
       member.email = e.target.value.trim();
-      saveMembers();
       try {
         await saveMember(member);
       } catch (error) {
@@ -6317,7 +6069,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const member = members[idx];
       if (!member) return;
       member.color = e.target.value;
-      saveMembers();
       renderBoard();
       try {
         await saveMember(member);
@@ -6332,7 +6083,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const member = members[idx];
       if (!member) return;
       member.role = e.target.value;
-      saveMembers();
       renderRoleSelect();
       try {
         await saveMember(member);
@@ -6347,7 +6097,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       const member = members[idx];
       if (!member) return;
       member.active = e.target.checked;
-      saveMembers();
       renderMemberRows();
       renderRoleSelect();
       try {
@@ -6365,7 +6114,6 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         try {
           await deleteMember(m.id);
           members.splice(idx,1);
-          saveMembers();
           renderMemberRows();
           renderAll();
         } catch (error) {
@@ -6391,7 +6139,6 @@ document.getElementById('membersBtn').addEventListener('click', () => {
     try {
       await saveMember(member);
       members.push(member);
-      saveMembers();
       renderMemberRows();
     } catch (error) {
       console.error('❌ Gagal menambah member:', error);
@@ -6961,7 +6708,6 @@ document
           zoom: editPhotoZoom,
           baseSize: 92
         };
-        saveMembers();
         try {
           await saveMember(currentMember);
         } catch (memberError) {

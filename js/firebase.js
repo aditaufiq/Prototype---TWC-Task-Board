@@ -864,6 +864,223 @@ async function deleteTasksBatch(taskIds) {
   await batch.commit();
 }
 
+
+async function getAllWorkspaceCollectionDocs(collectionName) {
+  const snapshot = await getDocs(collection(db, collectionName));
+  return snapshot.docs.map(docSnap => ({
+    ...docSnap.data(),
+    id: String(docSnap.id)
+  }));
+}
+
+async function commitBatchOperations(operations, chunkSize = 400) {
+  for (let start = 0; start < operations.length; start += chunkSize) {
+    const chunk = operations.slice(start, start + chunkSize);
+    const batch = writeBatch(db);
+
+    for (const operation of chunk) {
+      if (operation.type === 'delete') {
+        batch.delete(operation.ref);
+      } else if (operation.type === 'set') {
+        batch.set(operation.ref, operation.data, operation.options || {});
+      } else if (operation.type === 'update') {
+        batch.update(operation.ref, operation.data);
+      }
+    }
+
+    await batch.commit();
+  }
+}
+
+function normalizeImportedTask(task, actorUid) {
+  const now = new Date().toISOString();
+  const createdAt = task?.createdAt || now;
+
+  return {
+    ...task,
+    id: String(task?.id || ''),
+    product: task?.product || '',
+    createdBy: task?.createdBy || 'admin',
+    createdByUid: task?.createdByUid || actorUid,
+    updatedByUid: task?.updatedByUid || actorUid,
+    createdAt,
+    updatedAt: task?.updatedAt || createdAt,
+    status: task?.status || 'todo',
+    statusHistory: Array.isArray(task?.statusHistory) && task.statusHistory.length
+      ? task.statusHistory
+      : [{ status: task?.status || 'todo', at: createdAt, by: task?.createdBy || 'admin' }],
+    contributors: Array.isArray(task?.contributors) ? task.contributors : [],
+    attachments: Array.isArray(task?.attachments) ? task.attachments : [],
+    archived: task?.archived === true
+  };
+}
+
+async function replaceWorkspaceData(payload, actorUid) {
+  if (!actorUid || auth.currentUser?.uid !== actorUid) {
+    throw new Error('Active Firebase session is required for workspace import.');
+  }
+
+  const userProfile = await getUserProfile(actorUid);
+  if (userProfile?.accessLevel !== 'all') {
+    throw new Error('Only all-access users can import workspace data.');
+  }
+
+  const normalizedTasks = (Array.isArray(payload?.tasks) ? payload.tasks : [])
+    .map(task => normalizeImportedTask(task, actorUid))
+    .filter(task => task.id);
+
+  const normalizedMembers = (Array.isArray(payload?.members) ? payload.members : [])
+    .map(member => ({
+      ...member,
+      id: String(member?.id || '').trim(),
+      name: member?.name || 'Unnamed Member',
+      email: member?.email || '',
+      role: member?.role || 'member',
+      active: member?.active !== false
+    }))
+    .filter(member => member.id);
+
+  const normalizedProducts = {};
+  if (payload?.products && typeof payload.products === 'object') {
+    for (const [divisionId, items] of Object.entries(payload.products)) {
+      normalizedProducts[String(divisionId)] = Array.isArray(items)
+        ? items.map(item => String(item).trim()).filter(Boolean)
+        : [];
+    }
+  }
+
+  const normalizedActivities = (Array.isArray(payload?.activities) ? payload.activities : [])
+    .map(activity => ({
+      ...activity,
+      id: String(activity?.id || `imported-activity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+      actorUid: activity?.actorUid || null,
+      actorId: activity?.actorId || activity?.actorUid || 'unknown',
+      actorName: activity?.actorName || 'Unknown',
+      action: activity?.action || 'update',
+      detail: activity?.detail || '',
+      at: activity?.at || activity?.createdAt || new Date().toISOString(),
+      legacy: true,
+      migratedFromBackup: true,
+      migratedByUid: actorUid
+    }));
+
+  const normalizedComments = (Array.isArray(payload?.comments) ? payload.comments : [])
+    .map(comment => ({
+      ...comment,
+      id: String(comment?.id || `imported-comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+      taskId: String(comment?.taskId || ''),
+      authorId: String(comment?.authorId || 'unknown'),
+      authorName: comment?.authorName || 'Unknown',
+      authorUid: comment?.authorUid || null,
+      text: String(comment?.text || '').trim(),
+      at: comment?.at || comment?.createdAt || new Date().toISOString(),
+      createdAt: comment?.createdAt || comment?.at || new Date().toISOString(),
+      replyToId: comment?.replyToId ? String(comment.replyToId) : null,
+      mentions: Array.isArray(comment?.mentions) ? comment.mentions.map(String) : [],
+      legacy: true,
+      migratedFromBackup: true,
+      migratedByUid: actorUid
+    }))
+    .filter(comment => comment.taskId && comment.text);
+
+  const normalizedNotifications = (Array.isArray(payload?.notifications) ? payload.notifications : [])
+    .map(notification => ({
+      ...notification,
+      id: String(notification?.id || `imported-notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+      recipientUid: actorUid,
+      recipientMemberId: notification?.recipientMemberId || null,
+      type: notification?.type || 'message',
+      priority: notification?.priority || 'normal',
+      title: notification?.title || 'Imported notification',
+      body: String(notification?.body || ''),
+      taskId: notification?.taskId == null ? null : String(notification.taskId),
+      commentId: notification?.commentId == null ? null : String(notification.commentId),
+      sourceType: 'legacy',
+      sourceId: notification?.sourceId == null ? null : String(notification.sourceId),
+      sourceEvent: notification?.sourceEvent || 'imported',
+      actorUid: notification?.actorUid || null,
+      actorMemberId: notification?.actorMemberId || null,
+      actorName: notification?.actorName || null,
+      read: notification?.read === true,
+      at: notification?.at || notification?.createdAt || new Date().toISOString(),
+      createdAt: notification?.createdAt || notification?.at || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      legacy: true,
+      migratedByUid: actorUid
+    }));
+
+  const [existingTasks, existingMembers, existingProducts, existingActivities, existingComments, notificationSnapshot] = await Promise.all([
+    getAllWorkspaceCollectionDocs('tasks'),
+    getAllWorkspaceCollectionDocs('members'),
+    getAllWorkspaceCollectionDocs('products'),
+    getAllWorkspaceCollectionDocs('activities'),
+    getAllWorkspaceCollectionDocs('comments'),
+    getDocs(collection(db, 'users', actorUid, 'notifications'))
+  ]);
+
+  const deleteOperations = [];
+  for (const item of existingTasks) deleteOperations.push({ type: 'delete', ref: doc(db, 'tasks', item.id) });
+  for (const item of existingMembers) deleteOperations.push({ type: 'delete', ref: doc(db, 'members', item.id) });
+  for (const item of existingProducts) deleteOperations.push({ type: 'delete', ref: doc(db, 'products', item.id) });
+  for (const item of existingActivities) deleteOperations.push({ type: 'delete', ref: doc(db, 'activities', item.id) });
+  for (const item of existingComments) deleteOperations.push({ type: 'delete', ref: doc(db, 'comments', item.id) });
+  for (const docSnap of notificationSnapshot.docs) {
+    deleteOperations.push({
+      type: 'delete',
+      ref: doc(db, 'users', actorUid, 'notifications', docSnap.id)
+    });
+  }
+
+  await commitBatchOperations(deleteOperations);
+
+  const writeOperations = [];
+  for (const task of normalizedTasks) writeOperations.push({ type: 'set', ref: doc(db, 'tasks', task.id), data: task });
+  for (const member of normalizedMembers) writeOperations.push({ type: 'set', ref: doc(db, 'members', member.id), data: member });
+  for (const [divisionId, items] of Object.entries(normalizedProducts)) {
+    writeOperations.push({
+      type: 'set',
+      ref: doc(db, 'products', divisionId),
+      data: { divisionId, items, updatedAt: new Date().toISOString() },
+      options: { merge: true }
+    });
+  }
+  for (const activity of normalizedActivities) {
+    const id = String(activity.id);
+    writeOperations.push({ type: 'set', ref: doc(db, 'activities', id), data: { ...activity, id } });
+  }
+  for (const comment of normalizedComments) {
+    const id = String(comment.id);
+    writeOperations.push({ type: 'set', ref: doc(db, 'comments', id), data: { ...comment, id } });
+  }
+  for (const notification of normalizedNotifications) {
+    const id = String(notification.id);
+    writeOperations.push({ type: 'set', ref: doc(db, 'users', actorUid, 'notifications', id), data: { ...notification, id } });
+  }
+
+  const maxTaskNumber = normalizedTasks.reduce((max, task) => {
+    const match = String(task.id).match(/^task-(\d+)$/i);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+
+  writeOperations.push({
+    type: 'set',
+    ref: doc(db, 'counters', 'tasks'),
+    data: { lastNumber: maxTaskNumber, updatedAt: new Date().toISOString() },
+    options: { merge: true }
+  });
+
+  await commitBatchOperations(writeOperations);
+
+  return {
+    tasks: normalizedTasks,
+    members: normalizedMembers,
+    products: normalizedProducts,
+    activities: normalizedActivities,
+    comments: normalizedComments,
+    notifications: normalizedNotifications
+  };
+}
+
 async function updateUserProfile(uid, profileData) {
   const userRef = doc(db, "users", uid);
 
@@ -891,6 +1108,7 @@ window.subscribeToActivities = subscribeToActivities;
 window.addActivity = addActivity;
 window.subscribeToComments = subscribeToComments;
 window.getAllComments = getAllComments;
+window.replaceWorkspaceData = replaceWorkspaceData;
 window.addComment = addComment;
 window.addCommentWithNotifications = addCommentWithNotifications;
 window.subscribeToNotifications = subscribeToNotifications;
@@ -929,6 +1147,7 @@ export {
   addActivity,
   subscribeToComments,
   getAllComments,
+  replaceWorkspaceData,
   addComment,
   addCommentWithNotifications,
   subscribeToNotifications,
