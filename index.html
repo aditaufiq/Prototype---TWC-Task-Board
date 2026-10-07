@@ -3938,24 +3938,23 @@ if(avatar){
     const position =
       currentUserProfile?.profilePhotoPosition || {};
 
-    const x = Number(position.x || 0);
-    const y = Number(position.y || 0);
-    const zoom = Number(position.zoom || 1);
+    // Use the same avatar transform system as task cards, comments,
+    // notifications, and other member avatars. This keeps the focal
+    // point consistent even though the sidebar avatar is a different size.
+    const sidebarAvatarSize = 36;
+    const { x, y, zoom } = avatarTransform(
+      position,
+      sidebarAvatarSize
+    );
 
     avatar.innerHTML = `
       <img
-        src="${photo}"
+        src="${escapeHtml(photo)}"
         alt="Profile photo"
         draggable="false"
+        style="transform:translate(${x}px, ${y}px) scale(${zoom})"
       >
     `;
-
-    const img = avatar.querySelector('img');
-
-    if(img){
-      img.style.transform =
-        `translate(${x}px, ${y}px) scale(${zoom})`;
-    }
 
   }else{
     avatar.innerHTML = `
