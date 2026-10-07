@@ -4021,7 +4021,15 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     || memberOf(currentRole).role === 'admin';
 }
   function canManageTask(task){ return !!task && (isAdmin() || currentRole === task.assignee); }
-  function canEditTask(task){ return canManageTask(task); }
+  function isTaskContributorMember(task){
+    return !!task
+      && currentRole !== task.assignee
+      && Array.isArray(task.contributors)
+      && task.contributors.includes(currentRole);
+  }
+  function canEditTask(task){
+    return !!task && (isAdmin() || currentRole === task.assignee || isTaskContributorMember(task));
+  }
 
   function renderRoleSelect(){
   const userLabel = document.getElementById('signedInUser');
@@ -5005,13 +5013,16 @@ function renderSummary(){
     const deleteBtn = document.getElementById('deleteBtn');
     const editBtn = document.getElementById('editTaskBtn');
     const isTaskPIC = currentRole === task.assignee;
+    const isContributor = isTaskContributorMember(task);
     deleteBtn.style.display = isAdmin() ? 'inline-block' : 'none';
     editBtn.style.display = canEditTask(task) ? 'inline-block' : 'none';
     managerNote.innerHTML = isTaskPIC && !isAdmin()
       ? `<div class="task-manager-note"><strong>You are the PIC for this task.</strong> You can update the task content, add links/images, change its status, and participate in the discussion. Department, product, priority, due date, and reassignment are controlled by Admin.</div>`
-      : isAdmin()
-        ? `<div class="task-manager-note"><strong>Admin access.</strong> You can manage this task and step in whenever needed.</div>`
-        : '';
+      : isContributor && !isAdmin()
+        ? `<div class="task-manager-note"><strong>You are a contributor on this task.</strong> You can update the task content, links, images, attachments, and participate in the discussion. Department, product, priority, due date, reassignment, and status changes remain controlled by the PIC/Admin.</div>`
+        : isAdmin()
+          ? `<div class="task-manager-note"><strong>Admin access.</strong> You can manage this task and step in whenever needed.</div>`
+          : '';
     document.getElementById('dImageBox').innerHTML = task.image
       ? `<img src="${task.image}" style="width:100%; border-radius:8px; margin-bottom:0.9rem; border:1px solid var(--line);">`
       : '';
@@ -5570,20 +5581,20 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     document.getElementById('fAssignee').value = task.assignee; [...document.getElementById('fContributors').options].forEach(o=>o.selected=(task.contributors||[]).includes(o.value));
     const departmentField = document.getElementById('fDepartmenton').closest('.field');
     const assigneeField = document.getElementById('fAssignee').closest('.field');
-    const picMode = !isAdmin() && currentRole === task.assignee;
+    const collaboratorMode = !isAdmin() && (currentRole === task.assignee || isTaskContributorMember(task));
     const priorityField = document.getElementById('fPriority').closest('.field');
     const dueField = document.getElementById('fDue').closest('.field');
     const productField = document.getElementById('fProduct').closest('.field');
-    if (departmentField) departmentField.classList.toggle('disabled-field', picMode);
-    if (assigneeField) assigneeField.classList.toggle('disabled-field', picMode);
-    if (productField) productField.classList.toggle('disabled-field', picMode);
-    if (priorityField) priorityField.classList.toggle('disabled-field', picMode);
-    if (dueField) dueField.classList.toggle('disabled-field', picMode);
-    document.getElementById('fDepartmenton').disabled = picMode;
-    document.getElementById('fAssignee').disabled = picMode;
-    document.getElementById('fProduct').disabled = picMode;
-    document.getElementById('fPriority').disabled = picMode;
-    document.getElementById('fDue').disabled = picMode;
+    if (departmentField) departmentField.classList.toggle('disabled-field', collaboratorMode);
+    if (assigneeField) assigneeField.classList.toggle('disabled-field', collaboratorMode);
+    if (productField) productField.classList.toggle('disabled-field', collaboratorMode);
+    if (priorityField) priorityField.classList.toggle('disabled-field', collaboratorMode);
+    if (dueField) dueField.classList.toggle('disabled-field', collaboratorMode);
+    document.getElementById('fDepartmenton').disabled = collaboratorMode;
+    document.getElementById('fAssignee').disabled = collaboratorMode;
+    document.getElementById('fProduct').disabled = collaboratorMode;
+    document.getElementById('fPriority').disabled = collaboratorMode;
+    document.getElementById('fDue').disabled = collaboratorMode;
     document.getElementById('fPriority').value = task.priority;
     document.getElementById('fDue').value = task.due;
     document.getElementById('fImage').value = '';
