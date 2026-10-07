@@ -3035,6 +3035,91 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   }
 
 
+  function departmentNameKey(name) {
+    return String(name || '')
+      .trim()
+      .toLocaleLowerCase('en')
+      .replace(/\s+/g, ' ');
+  }
+
+  function sortDepartmentsAlphabetically(list) {
+    return [...list].sort((a, b) => {
+      const nameCompare = String(a?.name || '').localeCompare(
+        String(b?.name || ''),
+        'en',
+        { sensitivity: 'base', numeric: true }
+      );
+      if (nameCompare !== 0) return nameCompare;
+      return String(a?.id || '').localeCompare(String(b?.id || ''), 'en');
+    });
+  }
+
+  async function removeDuplicateDepartments(remoteDepartments) {
+    if (!isAdmin() || !Array.isArray(remoteDepartments) || remoteDepartments.length < 2) return;
+
+    const groups = new Map();
+    for (const department of remoteDepartments) {
+      const id = String(department?.id || '');
+      const name = String(department?.name || '').trim();
+      if (!id || id === 'all' || !name) continue;
+
+      const key = departmentNameKey(name);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(department);
+    }
+
+    for (const group of groups.values()) {
+      if (group.length <= 1) continue;
+
+      const withUsage = group.map(department => ({
+        department,
+        taskCount: tasks.filter(task => String(task.division || '') === String(department.id)).length,
+        productCount: productListForDivision(String(department.id)).length
+      }));
+
+      // Keep the most-used record. If there is no usage, keep the oldest record
+      // when createdAt exists, then fall back to the lexicographically smaller id.
+      withUsage.sort((a, b) => {
+        const usageCompare = (b.taskCount + b.productCount) - (a.taskCount + a.productCount);
+        if (usageCompare !== 0) return usageCompare;
+
+        const createdA = new Date(a.department?.createdAt || 0).getTime();
+        const createdB = new Date(b.department?.createdAt || 0).getTime();
+        if (createdA !== createdB) return createdA - createdB;
+
+        return String(a.department?.id || '').localeCompare(String(b.department?.id || ''), 'en');
+      });
+
+      const keeper = withUsage[0];
+
+      for (const candidate of withUsage.slice(1)) {
+        // Never silently remove a duplicate that still owns real task/product data.
+        if (candidate.taskCount > 0 || candidate.productCount > 0) {
+          console.warn(
+            `⚠️ Duplicate department name detected but kept because it has usage: ${candidate.department.name}`,
+            {
+              duplicateId: candidate.department.id,
+              taskCount: candidate.taskCount,
+              productCount: candidate.productCount,
+              keeperId: keeper.department.id
+            }
+          );
+          continue;
+        }
+
+        try {
+          await deleteDepartment(String(candidate.department.id));
+          console.warn(
+            `🧹 Removed duplicate department: ${candidate.department.name}`,
+            { removedId: candidate.department.id, keeperId: keeper.department.id }
+          );
+        } catch (error) {
+          console.error('❌ Gagal membersihkan duplicate department:', error);
+        }
+      }
+    }
+  }
+
   async function startDepartmentsRealtime(profile, user){
     if (!user?.uid) return;
 
@@ -3062,14 +3147,28 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         async remoteDepartments => {
           try {
             if (remoteDepartments.length > 0) {
-              departments = remoteDepartments
-                .map(department => ({
-                  id: String(department.id),
-                  name: String(department.name || 'Unnamed Department').trim() || 'Unnamed Department',
-                  color: department.color || '#0F766E'
-                }))
-                .filter(department => department.id && department.id !== 'all')
-                .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+              await removeDuplicateDepartments(remoteDepartments);
+
+              departments = sortDepartmentsAlphabetically(
+                remoteDepartments
+                  .map(department => ({
+                    id: String(department.id),
+                    name: String(department.name || 'Unnamed Department').trim() || 'Unnamed Department',
+                    color: department.color || '#0F766E',
+                    createdAt: department.createdAt || null
+                  }))
+                  .filter(department => department.id && department.id !== 'all')
+              );
+
+              // Hide any exact-name duplicates immediately while their delete write
+              // propagates through Firestore snapshots.
+              const seenNames = new Set();
+              departments = departments.filter(department => {
+                const key = departmentNameKey(department.name);
+                if (seenNames.has(key)) return false;
+                seenNames.add(key);
+                return true;
+              });
 
               console.log('🔄 Realtime departments synced:', departments.length);
               renderAll();
@@ -3079,7 +3178,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
               return;
             }
 
-            departments = DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
+            departments = sortDepartmentsAlphabetically(
+              DEFAULT_DEPARTMENTS.map(d => ({ ...d }))
+            );
 
             if (isAdmin()) {
               console.log('⏳ Firestore departments kosong. Memulai initial migration...');
@@ -6026,6 +6127,8 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     const box = document.getElementById('departmentManagerBody');
     if (!box) return;
 
+    const sortedDepartments = sortDepartmentsAlphabetically(departments);
+
     box.innerHTML = `
       <div class="department-manager-toolbar">
         <button type="button" class="product-add-trigger" id="addDepartmentManagerBtn">
@@ -6033,7 +6136,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         </button>
       </div>
       <div class="department-manager-list">
-        ${departments.map((department, index) => {
+        ${sortedDepartments.map((department, index) => {
           const taskCount = tasks.filter(task => task.division === department.id).length;
           const productCountForDepartment = productListForDivision(department.id).length;
 
@@ -6116,7 +6219,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           return;
         }
 
-        if (departments.some(d => d.name.toLowerCase() === trimmedName.toLowerCase())) {
+        if (departments.some(d => departmentNameKey(d.name) === departmentNameKey(trimmedName))) {
           setMessage('That department name is already in use.');
           input.focus();
           input.select();
@@ -6137,7 +6240,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         try {
           await saveDepartment(department);
           logActivity(null, 'department', `Created department “${trimmedName}”`);
-          departments = [...departments, department];
+          departments = sortDepartmentsAlphabetically([...departments, department]);
           renderAll();
           renderDepartmentManager();
         } catch (error) {
@@ -6182,7 +6285,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         if (
           departments.some(item =>
             item.id !== department.id &&
-            item.name.toLowerCase() === newName.toLowerCase()
+            departmentNameKey(item.name) === departmentNameKey(newName)
           )
         ) {
           event.target.value = department.name;
