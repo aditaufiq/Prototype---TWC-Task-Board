@@ -344,22 +344,171 @@
     background:#FDECEC;
   }
   .department-manager-toolbar .product-add-trigger{
-    border:0;
-    background:transparent;
-    color:var(--accent);
+    border:1px solid transparent;
+    background:var(--accent);
+    color:#fff;
     font-family:inherit;
     font-size:.72rem;
     font-weight:600;
     cursor:pointer;
-    padding:.28rem .35rem;
-    border-radius:5px;
+    padding:.5rem .72rem;
+    border-radius:7px;
     line-height:1.2;
     display:inline-flex;
     align-items:center;
     justify-content:center;
+    box-shadow:0 1px 1px rgba(0,0,0,.03);
   }
   .department-manager-toolbar .product-add-trigger:hover{
-    background:#EEF7F6;
+    opacity:.92;
+  }
+
+  .department-manager-create-row{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:.8rem;
+    padding:.8rem;
+    margin-bottom:.65rem;
+    border:1px solid #CFE3E0;
+    border-radius:10px;
+    background:#F7FBFA;
+    font-family:inherit;
+  }
+  .department-create-main{
+    flex:1;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    gap:.32rem;
+    font-family:inherit;
+  }
+  .department-create-title{
+    font-size:.68rem;
+    font-weight:700;
+    color:var(--accent);
+    letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+  .department-create-main input{
+    width:100%;
+    box-sizing:border-box;
+    padding:.58rem .65rem;
+    border:1px solid var(--line);
+    border-radius:7px;
+    font-family:inherit;
+    font-size:.8rem;
+    line-height:1.35;
+    color:var(--ink);
+    background:var(--panel);
+    outline:none;
+  }
+  .department-create-main input:focus{
+    border-color:#B8D9D5;
+    box-shadow:0 0 0 3px rgba(15,118,110,.08);
+  }
+  .department-create-actions{
+    display:flex;
+    align-items:center;
+    gap:.4rem;
+    flex:0 0 auto;
+  }
+  .department-create-actions button{
+    border-radius:7px;
+    padding:.52rem .7rem;
+    font-family:inherit;
+    font-size:.72rem;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .department-save-create{
+    border:1px solid var(--accent);
+    background:var(--accent);
+    color:#fff;
+  }
+  .department-save-create:hover{opacity:.92}
+  .department-save-create:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+  }
+  .department-cancel-create{
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--ink-soft);
+  }
+  .department-cancel-create:hover{
+    background:var(--bg);
+    color:var(--ink);
+  }
+  .department-inline-message{
+    min-height:1em;
+    font-family:inherit;
+    font-size:.64rem;
+    line-height:1.35;
+    color:var(--high);
+  }
+  .department-inline-message[data-tone="success"]{color:#2F7D4A}
+  .department-inline-message[data-tone="info"]{color:var(--ink-soft)}
+  .department-delete-confirm{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.7rem;
+    padding:.6rem .8rem;
+    border:1px solid #E4E8EA;
+    border-radius:9px;
+    background:var(--surface-soft);
+    font-family:inherit;
+  }
+  .department-delete-message{
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    gap:.14rem;
+    font-family:inherit;
+  }
+  .department-delete-message strong{
+    font-size:.73rem;
+    font-weight:600;
+    color:var(--ink);
+    line-height:1.35;
+  }
+  .department-delete-message span{
+    font-size:.64rem;
+    color:var(--ink-soft);
+    line-height:1.4;
+  }
+  .department-delete-actions{
+    display:flex;
+    align-items:center;
+    gap:.35rem;
+    flex:0 0 auto;
+  }
+  .department-delete-actions button,
+  .department-confirm-close{
+    border-radius:6px;
+    padding:.34rem .55rem;
+    font-family:inherit;
+    font-size:.66rem;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .department-cancel-delete,
+  .department-confirm-close{
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--ink-soft);
+  }
+  .department-confirm-delete{
+    border:1px solid #F1B6B6;
+    background:#FDECEC;
+    color:#B83232;
+  }
+  .department-confirm-delete:hover{background:#F9DEDE}
+  .department-confirm-delete:disabled{opacity:.55;cursor:not-allowed}
+  .department-delete-blocked{
+    border-color:#F0DFA8;
+    background:#FFF9EA;
   }
 .product-manager-modal h3{font-size:1.08rem;letter-spacing:-.01em;margin-bottom:.35rem}.product-manager-modal .import-note{font-size:.72rem;line-height:1.55}.product-manager-section{border:1px solid var(--line);border-radius:10px;margin-bottom:.65rem;overflow:hidden;background:var(--panel)}.product-manager-head{display:flex;justify-content:space-between;align-items:center;padding:.72rem .8rem;background:var(--surface-soft);border-bottom:1px solid var(--line)}.product-manager-head strong{font-size:.78rem;font-weight:600;letter-spacing:-.005em}.product-manager-head button{border:0;background:transparent;color:var(--accent);font-family:inherit;font-size:.72rem;font-weight:600;cursor:pointer;padding:.28rem .35rem;border-radius:5px}.product-manager-head button:hover{background:#EEF7F6}.product-manager-row{display:flex;align-items:center;gap:.55rem;padding:.5rem .8rem;border-bottom:1px solid #F0F2F4}.product-manager-row:last-child{border-bottom:none}.product-manager-row input{flex:1;padding:.48rem .58rem;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:.78rem;line-height:1.35;color:var(--ink);background:var(--panel);outline:none}.product-manager-row input:focus{border-color:#B8D9D5;box-shadow:0 0 0 3px rgba(15,118,110,.08)}.product-manager-row button{border:0;background:transparent;color:var(--high);cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600;width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center}.product-manager-row button:hover{background:#FDECEC}.product-new-row input{font-weight:500}.product-save-new{color:var(--accent)!important}.product-cancel-new{color:var(--ink-soft)!important}.product-delete-confirm{align-items:center;background:var(--surface-soft);padding:.55rem .8rem}.product-delete-message{flex:1;display:flex;flex-direction:column;gap:.12rem;min-width:0;font-family:inherit}.product-delete-message strong{font-size:.76rem;line-height:1.35;font-weight:600;color:var(--ink)}.product-delete-message span{font-size:.67rem;line-height:1.4;color:var(--ink-soft)}.product-delete-actions{display:flex;align-items:center;gap:.35rem;flex:0 0 auto}.product-delete-actions button{font-family:inherit;font-size:.68rem;font-weight:600;padding:.32rem .52rem;border-radius:5px;cursor:pointer}.product-cancel-delete{border:1px solid var(--line);background:var(--panel);color:var(--ink-soft)}.product-cancel-delete:hover{background:var(--bg);color:var(--ink)}.product-confirm-delete{border:1px solid #F1B6B6;background:#FDECEC;color:#B83232}.product-confirm-delete:hover{background:#F9DEDE}.notification-filters{display:flex;gap:.25rem;padding:.55rem .15rem .45rem;overflow:auto}.notification-filter{border:1px solid transparent;background:var(--surface-soft);color:var(--ink-soft);border-radius:999px;padding:.28rem .5rem;font-family:inherit;font-size:.64rem;cursor:pointer;white-space:nowrap}.notification-filter:hover,.notification-filter.active{border-color:var(--line);background:var(--bg);color:var(--ink);font-weight:600}
 
@@ -5905,6 +6054,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
                   aria-label="Department name"
                 >
                 <small>${taskCount} task${taskCount === 1 ? '' : 's'} · ${productCountForDepartment} product${productCountForDepartment === 1 ? '' : 's'}</small>
+                <div class="department-inline-message" data-department-message aria-live="polite"></div>
               </div>
               <button
                 type="button"
@@ -5919,34 +6069,93 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       </div>
     `;
 
+    const toolbar = box.querySelector('.department-manager-toolbar');
     const addBtn = document.getElementById('addDepartmentManagerBtn');
-    addBtn?.addEventListener('click', async () => {
-      const name = prompt('Department name:');
-      if (name == null) return;
 
-      const trimmedName = name.trim();
-      if (!trimmedName) return;
+    addBtn?.addEventListener('click', () => {
+      if (box.querySelector('.department-manager-create-row')) return;
 
-      if (departments.some(d => d.name.toLowerCase() === trimmedName.toLowerCase())) {
-        alert('That department name is already used.');
-        return;
-      }
+      const createRow = document.createElement('div');
+      createRow.className = 'department-manager-create-row';
+      createRow.innerHTML = `
+        <div class="department-create-main">
+          <div class="department-create-title">New department</div>
+          <input
+            type="text"
+            id="newDepartmentName"
+            maxlength="80"
+            placeholder="Enter department name"
+            autocomplete="off"
+          >
+          <div class="department-inline-message" id="newDepartmentMessage" aria-live="polite"></div>
+        </div>
+        <div class="department-create-actions">
+          <button type="button" class="department-save-create">Create</button>
+          <button type="button" class="department-cancel-create">Cancel</button>
+        </div>
+      `;
 
-      const department = {
-        id: nextDepartmentId(trimmedName),
-        name: trimmedName,
-        color: departmentColor(departments.length),
-        createdAt: new Date().toISOString()
+      toolbar.insertAdjacentElement('afterend', createRow);
+
+      const input = createRow.querySelector('#newDepartmentName');
+      const message = createRow.querySelector('#newDepartmentMessage');
+      const saveCreate = createRow.querySelector('.department-save-create');
+      const cancelCreate = createRow.querySelector('.department-cancel-create');
+
+      const setMessage = (text, tone = 'error') => {
+        message.textContent = text;
+        message.dataset.tone = tone;
       };
 
-      try {
-        await saveDepartment(department);
-        logActivity(null, 'department', `Created department “${trimmedName}”`);
-        renderDepartmentManager();
-      } catch (error) {
-        console.error('❌ Gagal menambah department:', error);
-        alert(`Department gagal ditambahkan.\n\n${error?.message || 'Unknown error'}`);
-      }
+      const createDepartment = async () => {
+        const trimmedName = input.value.trim();
+
+        if (!trimmedName) {
+          setMessage('Enter a department name.');
+          input.focus();
+          return;
+        }
+
+        if (departments.some(d => d.name.toLowerCase() === trimmedName.toLowerCase())) {
+          setMessage('That department name is already in use.');
+          input.focus();
+          input.select();
+          return;
+        }
+
+        const department = {
+          id: nextDepartmentId(trimmedName),
+          name: trimmedName,
+          color: departmentColor(departments.length),
+          createdAt: new Date().toISOString()
+        };
+
+        saveCreate.disabled = true;
+        cancelCreate.disabled = true;
+        setMessage('Creating…', 'info');
+
+        try {
+          await saveDepartment(department);
+          logActivity(null, 'department', `Created department “${trimmedName}”`);
+          departments = [...departments, department];
+          renderAll();
+          renderDepartmentManager();
+        } catch (error) {
+          console.error('❌ Gagal menambah department:', error);
+          saveCreate.disabled = false;
+          cancelCreate.disabled = false;
+          setMessage('Could not create the department. Please try again.');
+        }
+      };
+
+      saveCreate.addEventListener('click', createDepartment);
+      cancelCreate.addEventListener('click', () => renderDepartmentManager());
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') createDepartment();
+        if (event.key === 'Escape') renderDepartmentManager();
+      });
+
+      input.focus();
     });
 
     box.querySelectorAll('[data-department-name]').forEach(input => {
@@ -5956,9 +6165,17 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         const department = departments.find(item => item.id === id);
         if (!department) return;
 
+        const message = row.querySelector('[data-department-message]');
+        const showMessage = (text, tone = 'error') => {
+          if (!message) return;
+          message.textContent = text;
+          message.dataset.tone = tone;
+        };
+
         const newName = event.target.value.trim();
         if (!newName) {
           event.target.value = department.name;
+          showMessage('Department name cannot be empty.');
           return;
         }
 
@@ -5968,26 +6185,30 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
             item.name.toLowerCase() === newName.toLowerCase()
           )
         ) {
-          alert('That department name is already used.');
           event.target.value = department.name;
+          showMessage('That department name is already in use.');
           return;
         }
 
         const oldName = department.name;
-        if (oldName === newName) return;
+        if (oldName === newName) {
+          showMessage('');
+          return;
+        }
 
         department.name = newName;
 
         try {
           await saveDepartment(department);
           logActivity(null, 'department', `Renamed department “${oldName}” → “${newName}”`);
+          showMessage('Saved', 'success');
           renderAll();
           renderDepartmentManager();
         } catch (error) {
           department.name = oldName;
           event.target.value = oldName;
           console.error('❌ Gagal rename department:', error);
-          alert(`Department gagal diubah.\n\n${error?.message || 'Unknown error'}`);
+          showMessage('Could not save this change. Please try again.');
         }
       });
     });
@@ -5999,6 +6220,13 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         const department = departments.find(item => item.id === id);
         if (!department) return;
 
+        const message = row.querySelector('[data-department-message]');
+        const showMessage = (text, tone = 'error') => {
+          if (!message) return;
+          message.textContent = text;
+          message.dataset.tone = tone;
+        };
+
         const oldColor = department.color;
         department.color = event.target.value;
 
@@ -6006,56 +6234,89 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
           await saveDepartment(department);
           logActivity(null, 'department', `Changed color for “${department.name}”`);
           renderAll();
+          renderDepartmentManager();
         } catch (error) {
           department.color = oldColor;
           event.target.value = oldColor;
           console.error('❌ Gagal mengubah warna department:', error);
-          alert(`Department color gagal disimpan.\n\n${error?.message || 'Unknown error'}`);
+          showMessage('Could not save this color. Please try again.');
         }
       });
     });
 
     box.querySelectorAll('[data-delete-department]').forEach(button => {
       button.addEventListener('click', async () => {
-        const id = button.closest('[data-department-id]')?.dataset.departmentId;
+        const row = button.closest('[data-department-id]');
+        const id = row?.dataset.departmentId;
         const department = departments.find(item => item.id === id);
         if (!department) return;
+
+        const existingConfirm = row.nextElementSibling;
+        if (existingConfirm?.classList.contains('department-delete-confirm')) return;
 
         const taskCount = tasks.filter(task => task.division === department.id).length;
         const productCountForDepartment = productListForDivision(department.id).length;
 
         if (taskCount > 0 || productCountForDepartment > 0) {
-          alert(
-            `Department “${department.name}” cannot be deleted yet.\n\n` +
-            `${taskCount} task${taskCount === 1 ? '' : 's'} and ` +
-            `${productCountForDepartment} product${productCountForDepartment === 1 ? '' : 's'} still belong to this department.\n\n` +
-            'Move or remove those items first.'
-          );
+          const confirmRow = document.createElement('div');
+          confirmRow.className = 'department-delete-confirm department-delete-blocked';
+          confirmRow.innerHTML = `
+            <div class="department-delete-message">
+              <strong>Cannot delete “${escapeHtml(department.name)}” yet.</strong>
+              <span>${taskCount} task${taskCount === 1 ? '' : 's'} · ${productCountForDepartment} product${productCountForDepartment === 1 ? '' : 's'} still belong to this department.</span>
+            </div>
+            <button type="button" class="department-confirm-close">Close</button>
+          `;
+          row.insertAdjacentElement('afterend', confirmRow);
+          confirmRow.querySelector('.department-confirm-close')?.addEventListener('click', () => confirmRow.remove());
           return;
         }
 
-        const confirmed = confirm(`Delete department “${department.name}”?`);
-        if (!confirmed) return;
+        const confirmRow = document.createElement('div');
+        confirmRow.className = 'department-delete-confirm';
+        confirmRow.innerHTML = `
+          <div class="department-delete-message">
+            <strong>Delete “${escapeHtml(department.name)}”?</strong>
+            <span>This department has no tasks or products attached to it.</span>
+          </div>
+          <div class="department-delete-actions">
+            <button type="button" class="department-cancel-delete">Cancel</button>
+            <button type="button" class="department-confirm-delete">Delete</button>
+          </div>
+        `;
+        row.insertAdjacentElement('afterend', confirmRow);
 
-        try {
-          await deleteProductGroup(department.id);
-          await deleteDepartment(department.id);
-          logActivity(null, 'department', `Deleted department “${department.name}”`);
-          departments = departments.filter(item => item.id !== department.id);
-          products = { ...products };
+        confirmRow.querySelector('.department-cancel-delete')?.addEventListener('click', () => {
+          confirmRow.remove();
+        });
 
-          if (activeDepartmenton === department.id) {
-            activeDepartmenton = 'all';
-            activeProduct = null;
+        confirmRow.querySelector('.department-confirm-delete')?.addEventListener('click', async event => {
+          event.currentTarget.disabled = true;
+
+          try {
+            await deleteProductGroup(department.id);
+            await deleteDepartment(department.id);
+            logActivity(null, 'department', `Deleted department “${department.name}”`);
+            departments = departments.filter(item => item.id !== department.id);
+            products = { ...products };
+
+            if (activeDepartmenton === department.id) {
+              activeDepartmenton = 'all';
+              activeProduct = null;
+            }
+            expandedDepartments.delete(department.id);
+
+            renderDepartmentManager();
+            renderAll();
+          } catch (error) {
+            console.error('❌ Gagal menghapus department:', error);
+            confirmRow.querySelector('.department-delete-message').insertAdjacentHTML(
+              'beforeend',
+              '<span class="department-inline-message" data-tone="error">Could not delete this department. Please try again.</span>'
+            );
+            event.currentTarget.disabled = false;
           }
-          expandedDepartments.delete(department.id);
-
-          renderDepartmentManager();
-          renderAll();
-        } catch (error) {
-          console.error('❌ Gagal menghapus department:', error);
-          alert(`Department gagal dihapus.\n\n${error?.message || 'Unknown error'}`);
-        }
+        });
       });
     });
   }
