@@ -662,6 +662,15 @@
   .attachment-item{display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.42rem .5rem;border-radius:6px;background:var(--surface-soft);font-size:.7rem;}
   .attachment-item a{color:var(--accent);text-decoration:none;font-weight:500;}
   .attachment-item a:hover{text-decoration:underline;}
+  .attachment-manager-list{display:flex;flex-direction:column;gap:.42rem;margin-top:.55rem;}
+  .attachment-manager-item{display:flex;align-items:center;justify-content:space-between;gap:.65rem;padding:.48rem .55rem;border:1px solid var(--line);border-radius:7px;background:var(--surface-soft);font-size:.69rem;}
+  .attachment-manager-main{display:flex;align-items:center;gap:.48rem;min-width:0;}
+  .attachment-manager-icon{font-size:.84rem;flex:none;}
+  .attachment-manager-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .attachment-manager-meta{font-size:.61rem;color:var(--ink-soft);white-space:nowrap;}
+  .attachment-remove-btn{border:0;background:transparent;color:var(--ink-soft);cursor:pointer;font-size:.8rem;padding:.18rem .28rem;border-radius:5px;line-height:1;}
+  .attachment-remove-btn:hover{color:var(--high);background:rgba(190,58,58,.07);}
+  .attachment-file-error{margin-top:.5rem;padding:.5rem .6rem;border:1px solid rgba(190,58,58,.22);border-radius:7px;background:rgba(190,58,58,.05);color:var(--high);font-size:.65rem;line-height:1.45;}
   .status-timeline{display:flex;flex-direction:column;gap:.45rem;}
   .status-row{display:grid;grid-template-columns:7px 1fr auto;gap:.5rem;align-items:start;}
   .status-row .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-top:.28rem;}
@@ -2338,7 +2347,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <label>Attachments (optional)</label>
 <input accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv" id="fImage" multiple="" type="file"/>
 <div id="fImagePreviewBox" style="margin-top:0.6rem;"></div>
-<div class="description-help">Attach supporting images or documents for this task.</div>
+<div class="description-help">Add supporting images or documents. Images are optimized in the browser; this Firestore-only stage keeps attachments small.</div>
 </div>
 <div class="modal-actions">
 <button class="btn-secondary" id="cancelBtn">Cancel</button>
@@ -2553,6 +2562,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   signOut,
   onAuthStateChanged,
   getUserProfile,
+  buildFileMetadata,
+  normalizeFileMetadata,
+  prepareProfilePhoto,
+  prepareTaskAttachments,
+  buildTaskAttachmentMetadata,
+  isTaskAttachmentReadable,
+  buildProfilePhotoUrlMetadata,
   getMember,
   subscribeToMembers,
   subscribeToDepartments,
@@ -2665,6 +2681,35 @@ function makeFirebaseMemberId(profile, user){
   return profile?.memberId || username || user?.uid;
 }
 
+function resolveProfilePhoto(profile, user){
+  if (profile?.profilePhoto) {
+    return {
+      data: profile.profilePhoto,
+      meta: profile.profilePhotoMeta ? normalizeFileMetadata(profile.profilePhotoMeta) : null
+    };
+  }
+
+  const profileMetaUrl = profile?.profilePhotoMeta?.downloadUrl || null;
+  if (profileMetaUrl) {
+    return {
+      data: profileMetaUrl,
+      meta: normalizeFileMetadata(profile.profilePhotoMeta)
+    };
+  }
+
+  if (user?.photoURL) {
+    return {
+      data: user.photoURL,
+      meta: buildProfilePhotoUrlMetadata(user.photoURL, {
+        uploadedByUid: user.uid,
+        name: 'Google profile photo'
+      })
+    };
+  }
+
+  return { data: null, meta: null };
+}
+
 window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   currentUserProfile = profile || null;
   currentRole = memberId || currentRole;
@@ -2694,6 +2739,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
       if (profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhoto')) {
         existingMember.profilePhoto = profile.profilePhoto || null;
       }
+      if (profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhotoMeta')) {
+        existingMember.profilePhotoMeta = profile.profilePhotoMeta || null;
+      }
       if (profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhotoPosition')) {
         existingMember.profilePhotoPosition = {
           x: Number(profile.profilePhotoPosition?.x || 0),
@@ -2714,6 +2762,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         ...(profile?.authUid ? { authUid: profile.authUid } : {}),
         ...(profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhoto')
           ? { profilePhoto: profile.profilePhoto || null }
+          : {}),
+        ...(profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhotoMeta')
+          ? { profilePhotoMeta: profile.profilePhotoMeta || null }
           : {}),
         ...(profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhotoPosition')
           ? {
@@ -2786,6 +2837,11 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         : [{ status: t.status || 'todo', at: createdAt, by: t.createdBy || 'admin' }],
       contributors: Array.isArray(t.contributors) ? t.contributors : [],
       attachments: Array.isArray(t.attachments) ? t.attachments : [],
+      attachmentMetadata: Array.isArray(t.attachmentMetadata)
+        ? t.attachmentMetadata.map(meta => buildTaskAttachmentMetadata(normalizeFileMetadata(meta), t.id))
+        : (Array.isArray(t.attachments)
+          ? t.attachments.map(att => buildTaskAttachmentMetadata(normalizeFileMetadata(null, att), t.id))
+          : []),
       archived: t.archived === true
     };
   }
@@ -2877,6 +2933,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
       const existing = await getMember(memberId);
 
       const desiredProfilePhoto = profile.profilePhoto || null;
+      const desiredProfilePhotoMeta = profile.profilePhotoMeta
+        ? normalizeFileMetadata(profile.profilePhotoMeta)
+        : null;
       const desiredPosition = {
         x: Number(profile.profilePhotoPosition?.x || 0),
         y: Number(profile.profilePhotoPosition?.y || 0),
@@ -2894,6 +2953,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           active: true,
           authUid: user.uid,
           profilePhoto: desiredProfilePhoto,
+          profilePhotoMeta: desiredProfilePhotoMeta,
           profilePhotoPosition: desiredPosition
         });
         console.log('✅ Current user member dibuat di Firestore:', memberId);
@@ -2906,6 +2966,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           (existing.email || '') !== desiredEmail ||
           (existing.authUid || '') !== user.uid ||
           (existing.profilePhoto || null) !== desiredProfilePhoto ||
+          JSON.stringify(existing.profilePhotoMeta || null) !== JSON.stringify(desiredProfilePhotoMeta) ||
           Number(existingPosition.x || 0) !== desiredPosition.x ||
           Number(existingPosition.y || 0) !== desiredPosition.y ||
           Number(existingPosition.zoom || 1.5) !== desiredPosition.zoom ||
@@ -2918,6 +2979,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
             email: desiredEmail,
             authUid: user.uid,
             profilePhoto: desiredProfilePhoto,
+            profilePhotoMeta: desiredProfilePhotoMeta,
             profilePhotoPosition: desiredPosition
           });
           console.log('✅ Current user profile visual disinkronkan ke member:', memberId);
@@ -4016,10 +4078,10 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   }
 
   function isAdmin(){
-  return currentAccessLevel === 'all'
-    || currentRole === 'admin'
-    || memberOf(currentRole).role === 'admin';
-}
+    // Frontend privilege mirrors Firestore Rules: all-access is the
+    // single authority for administrative UI permissions.
+    return currentAccessLevel === 'all';
+  }
   function canManageTask(task){ return !!task && (isAdmin() || currentRole === task.assignee); }
   function isTaskContributorMember(task){
     return !!task
@@ -4029,6 +4091,15 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   }
   function canEditTask(task){
     return !!task && (isAdmin() || currentRole === task.assignee || isTaskContributorMember(task));
+  }
+
+  // Stage 11.4: attachment access follows the parent task's permissions.
+  // There is no public attachment URL created by the UI in this Firestore-only stage.
+  function canReadTaskAttachments(task){
+    return !!task && !!currentUserUid;
+  }
+  function canManageTaskAttachments(task){
+    return !!task && canEditTask(task);
   }
 
   function renderRoleSelect(){
@@ -4969,9 +5040,21 @@ function renderSummary(){
     }));
   }
   function renderAttachments(task){
-    const sec=document.getElementById('attachmentsSection'),box=document.getElementById('dAttachmentsList'); const arr=Array.isArray(task.attachments)?task.attachments:[];
-    if(!arr.length){sec.style.display='none';return;} sec.style.display='block';
-    box.innerHTML=arr.map((a,i)=>`<div class="attachment-item"><a href="${escapeHtml(a.data)}" target="_blank" rel="noopener noreferrer">📎 ${escapeHtml(a.name)}</a><span>${Math.round((a.size||0)/1024)} KB</span></div>`).join('');
+    const sec=document.getElementById('attachmentsSection'),box=document.getElementById('dAttachmentsList');
+    const arr=Array.isArray(task.attachments)?task.attachments:[];
+    if(!sec||!box||!arr.length||!canReadTaskAttachments(task)){
+      if(sec) sec.style.display='none';
+      return;
+    }
+    sec.style.display='block';
+    const metadataById = new Map((Array.isArray(task.attachmentMetadata)?task.attachmentMetadata:[]).map(meta => [String(meta?.id || ''), meta]));
+    box.innerHTML=arr.map(a=>{
+      const meta = metadataById.get(String(a?.id || '')) || buildTaskAttachmentMetadata(normalizeFileMetadata(null, a), task.id);
+      if(!isTaskAttachmentReadable(meta, task.id)) return '';
+      const href = (String(meta.source || '').includes('data-url') && a?.data) ? a.data : (meta.downloadUrl || a?.data || '');
+      if(!href) return '';
+      return `<div class="attachment-item"><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${attachmentIcon(meta.mimeType)} ${escapeHtml(meta.name || a.name || 'Attachment')}</a><span>${attachmentDisplaySize(Number(meta.size || a.size || 0))}</span></div>`;
+    }).join('');
   }
   function renderStatusTimeline(task){
     const box=document.getElementById('statusTimeline'); const arr=Array.isArray(task.statusHistory)?task.statusHistory:[];
@@ -5453,6 +5536,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   let editingTaskId = null;
   let pendingImage = null;
   let pendingAttachments = [];
+  let pendingAttachmentMetadata = [];
 
   function populateAddForm(selectedDivision=null, selectedProduct=null){
     const deptSelect = document.getElementById('fDepartmenton');
@@ -5520,9 +5604,80 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     })).filter(link => link.label && link.url);
   }
 
+  function attachmentIcon(mimeType = ''){
+    const mime = String(mimeType || '').toLowerCase();
+    if (mime.startsWith('image/')) return '🖼️';
+    if (mime.includes('pdf')) return '📕';
+    if (mime.includes('sheet') || mime.includes('excel') || mime === 'text/csv') return '📊';
+    if (mime.includes('presentation') || mime.includes('powerpoint')) return '📽️';
+    if (mime.includes('word') || mime.includes('document')) return '📄';
+    return '📎';
+  }
+
+  function attachmentDisplaySize(bytes){
+    const size = Number(bytes || 0);
+    if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    if (size >= 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+    return `${Math.max(0, Math.round(size))} B`;
+  }
+
+  function ensurePendingAttachmentIds(){
+    const metas = Array.isArray(pendingAttachmentMetadata) ? pendingAttachmentMetadata : [];
+    pendingAttachments = (Array.isArray(pendingAttachments) ? pendingAttachments : []).map((attachment, index) => {
+      const meta = metas[index] || {};
+      const id = attachment?.id || meta.id || `legacy-att-${index}-${String(attachment?.name || 'file').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+      return { ...attachment, id };
+    });
+
+    pendingAttachmentMetadata = pendingAttachments.map((attachment, index) => {
+      const existing = metas[index] || {};
+      return normalizeFileMetadata(
+        { ...existing, id: attachment.id },
+        {
+          ...attachment,
+          id: attachment.id,
+          data: attachment.data,
+          uploadedByUid: existing.uploadedByUid || window.currentUserUidForFileMeta || null
+        }
+      );
+    });
+  }
+
+  function renderPendingAttachments(errorMessage = ''){
+    const box = document.getElementById('fImagePreviewBox');
+    if (!box) return;
+
+    ensurePendingAttachmentIds();
+
+    const imagePreview = pendingImage
+      ? `<img src="${escapeHtml(pendingImage)}" style="max-width:100%; max-height:180px; object-fit:contain; border-radius:6px; border:1px solid var(--line); margin-bottom:.5rem;">`
+      : '';
+
+    const list = pendingAttachments.length
+      ? `<div class="attachment-manager-list">${pendingAttachments.map((attachment, index) => {
+          const meta = pendingAttachmentMetadata[index] || {};
+          const size = Number(attachment?.size || meta.size || 0);
+          return `<div class="attachment-manager-item">
+            <div class="attachment-manager-main">
+              <span class="attachment-manager-icon">${attachmentIcon(attachment?.type || meta.mimeType)}</span>
+              <span class="attachment-manager-name" title="${escapeHtml(attachment?.name || meta.name || 'Attachment')}">${escapeHtml(attachment?.name || meta.name || 'Attachment')}</span>
+              <span class="attachment-manager-meta">${attachmentDisplaySize(size)}</span>
+            </div>
+            ${(!editingTaskId || canManageTaskAttachments(tasks.find(t => t.id === editingTaskId))) ? `<button type="button" class="attachment-remove-btn" data-remove-attachment="${escapeHtml(attachment?.id || String(index))}" aria-label="Remove attachment">×</button>` : ''}
+          </div>`;
+        }).join('')}</div>`
+      : '<div style="font-size:.64rem;color:var(--ink-soft);">No attachments selected.</div>';
+
+    const error = errorMessage
+      ? `<div class="attachment-file-error">${escapeHtml(errorMessage)}</div>`
+      : '';
+
+    box.innerHTML = imagePreview + list + error;
+  }
+
   function resetForm(){
     editingTaskId = null;
-    pendingImage = null; pendingAttachments = [];
+    pendingImage = null; pendingAttachments = []; pendingAttachmentMetadata = [];
     document.getElementById('formModalTitle').textContent = 'New Task';
     document.getElementById('saveBtn').textContent = 'Save';
     document.getElementById('fTitle').value = '';
@@ -5542,7 +5697,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     document.getElementById('fDue').closest('.field')?.classList.remove('disabled-field');
     document.getElementById('fDue').value = '';
     document.getElementById('fImage').value = '';
-    document.getElementById('fImagePreviewBox').innerHTML = '';
+    renderPendingAttachments();
     renderLinkEditor([]);
   }
 
@@ -5572,7 +5727,14 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     if (!task || !canEditTask(task)) return;
     editingTaskId = task.id;
     populateAddForm(task.division, task.product || null);
-    pendingImage = task.image || null; pendingAttachments = Array.isArray(task.attachments) ? task.attachments.slice() : [];
+    pendingImage = task.image || null;
+    pendingAttachments = Array.isArray(task.attachments)
+      ? task.attachments.map(att => ({ ...att }))
+      : [];
+    pendingAttachmentMetadata = Array.isArray(task.attachmentMetadata)
+      ? task.attachmentMetadata.map(meta => buildTaskAttachmentMetadata(normalizeFileMetadata(meta), task.id))
+      : pendingAttachments.map(att => buildTaskAttachmentMetadata(normalizeFileMetadata(null, att), task.id));
+    ensurePendingAttachmentIds();
     document.getElementById('formModalTitle').textContent = 'Edit Task';
     document.getElementById('saveBtn').textContent = 'Save Changes';
     document.getElementById('fTitle').value = task.title;
@@ -5599,19 +5761,55 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     document.getElementById('fDue').value = task.due;
     document.getElementById('fImage').value = '';
     renderLinkEditor(task.links || []);
-    document.getElementById('fImagePreviewBox').innerHTML = task.image
-      ? `<img src="${task.image}" style="max-width:100%; border-radius:6px; border:1px solid var(--line);">`
-      : '';
+    renderPendingAttachments();
     closeDetail();
     overlay.classList.add('open');
   });
 
-  document.getElementById('fImage').addEventListener('change', (e) => {
+  document.getElementById('fImage').addEventListener('change', async (e) => {
     const files = [...(e.target.files || [])];
+    e.target.value = '';
     if (!files.length) return;
-    const readers = files.map(file => new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=ev=>resolve({name:file.name,size:file.size,type:file.type,data:ev.target.result}); r.onerror=reject; r.readAsDataURL(file); }));
-    Promise.all(readers).then(items=>{ pendingAttachments = items; pendingImage = items.find(x=>x.type.startsWith('image/'))?.data || pendingImage; document.getElementById('fImagePreviewBox').innerHTML = items.map(x=>`<div style="font-size:.7rem;color:var(--ink-soft);padding:.25rem 0;">📎 ${escapeHtml(x.name)}</div>`).join(''); }).catch(()=>{ alert('Could not read one or more attachments.'); });
+
+    try {
+      const prepared = await window.prepareTaskAttachments(files, pendingAttachments);
+      prepared.forEach(item => {
+        pendingAttachments.push(item.attachment);
+        pendingAttachmentMetadata.push(item.metadata);
+      });
+
+      if (!pendingImage) {
+        const firstImage = prepared.find(item => String(item.metadata?.mimeType || '').startsWith('image/'));
+        pendingImage = firstImage?.attachment?.data || null;
+      }
+
+      renderPendingAttachments();
+    } catch (error) {
+      console.error('❌ Attachment processing failed:', error);
+      renderPendingAttachments(error?.message || 'Could not process one or more attachments.');
+    }
   });
+
+  document.getElementById('fImagePreviewBox').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove-attachment]');
+    if (!button) return;
+
+    const attachmentId = button.getAttribute('data-remove-attachment');
+    const removedIndex = pendingAttachments.findIndex(attachment => String(attachment?.id) === String(attachmentId));
+    if (removedIndex < 0) return;
+
+    const removed = pendingAttachments[removedIndex];
+    pendingAttachments.splice(removedIndex, 1);
+    pendingAttachmentMetadata.splice(removedIndex, 1);
+
+    if (pendingImage && removed?.data === pendingImage) {
+      const nextImage = pendingAttachments.find(attachment => String(attachment?.type || '').startsWith('image/'));
+      pendingImage = nextImage?.data || null;
+    }
+
+    renderPendingAttachments();
+  });
+
 
   document.getElementById('cancelBtn').addEventListener('click', () => { overlay.classList.remove('open'); resetForm(); });
 
@@ -5639,8 +5837,16 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   });
 
   document.getElementById('saveBtn').addEventListener('click', async () => {
+    ensurePendingAttachmentIds();
     const title = document.getElementById('fTitle').value.trim();
     if (!title) return;
+    const effectiveTaskId = editingTaskId ? String(editingTaskId) : String(Date.now());
+    const securedAttachmentMetadata = (Array.isArray(pendingAttachmentMetadata) ? pendingAttachmentMetadata : [])
+      .map((meta, index) => buildTaskAttachmentMetadata(
+        normalizeFileMetadata(meta, pendingAttachments[index] || {}),
+        effectiveTaskId
+      ));
+
     const data = {
       title,
       description: document.getElementById('fDesc').innerText.trim(),
@@ -5666,6 +5872,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
       links: readLinksFromForm(),
       contributors: [...document.getElementById('fContributors').selectedOptions].map(o=>o.value),
       attachments: pendingAttachments,
+      attachmentMetadata: securedAttachmentMetadata,
     };
     if (editingTaskId){
   const task = tasks.find(t => t.id === editingTaskId);
@@ -5754,7 +5961,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   const now = new Date().toISOString();
 
   const newTask = {
-    id: Date.now(),
+    id: Number(effectiveTaskId),
     status: 'todo',
     ...data,
     createdBy: currentRole,
@@ -7042,6 +7249,27 @@ function showProfileSetup(user){
   if(initial){
     initial.textContent = baseName.charAt(0).toUpperCase();
   }
+
+  // Stage 11.2: use the Google account photo as a lightweight URL fallback.
+  profilePhotoMeta = null;
+  if (user?.photoURL && photoPreview) {
+    photoPreview.innerHTML = `
+      <img
+        src="${escapeHtml(user.photoURL)}"
+        alt="Google profile photo"
+        draggable="false"
+      >
+    `;
+    profilePhotoMeta = buildProfilePhotoUrlMetadata(user.photoURL, {
+      uploadedByUid: user.uid,
+      name: 'Google profile photo'
+    });
+    photoX = 0;
+    photoY = 0;
+    photoZoom = 1.5;
+    updatePhotoPosition();
+  }
+
 const photoInput = document.getElementById('profilePhotoInput');
 const photoPreview = document.getElementById('profilePhotoPreview');
 
@@ -7053,6 +7281,7 @@ let startY = 0;
 let startPhotoX = 0;
 let startPhotoY = 0;
 let photoZoom = 1.5;
+let profilePhotoMeta = null;
 
 function updatePhotoPosition(){
   const img = photoPreview?.querySelector('img');
@@ -7064,16 +7293,17 @@ function updatePhotoPosition(){
     `translate(${photoX}px, ${photoY}px) scale(${zoom})`;
 }
 
-photoInput?.addEventListener('change', (event) => {
+photoInput?.addEventListener('change', async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
 
-  const reader = new FileReader();
+  try {
+    const prepared = await prepareProfilePhoto(file);
+    profilePhotoMeta = prepared?.meta || null;
 
-  reader.onload = () => {
     photoPreview.innerHTML = `
       <img
-        src="${reader.result}"
+        src="${escapeHtml(prepared.dataUrl)}"
         alt="Profile photo"
         draggable="false"
       >
@@ -7095,9 +7325,12 @@ photoInput?.addEventListener('change', (event) => {
     photoPreview.style.touchAction = 'none';
 
     updatePhotoPosition();
-  };
-
-  reader.readAsDataURL(file);
+    console.log('✅ Profile photo optimized:', prepared.meta);
+  } catch (error) {
+    console.error('❌ Gagal menyiapkan profile photo:', error);
+    alert(error?.message || 'Profile photo could not be prepared.');
+    event.target.value = '';
+  }
 });
 
 const photoZoomInput = document.getElementById('profilePhotoZoom');
@@ -7152,6 +7385,7 @@ completeProfileButton?.addEventListener('click', async () => {
         departmentStatus: 'pending',
         profileCompleted: true,
         profilePhoto: selectedPhoto,
+        profilePhotoMeta: profilePhotoMeta,
         profilePhotoPosition: {
           x: photoX,
           y: photoY,
@@ -7240,6 +7474,7 @@ let editPhotoX = 0;
 let editPhotoY = 0;
 let editPhotoZoom = 1.5;
 let editPhotoData = null;
+let editPhotoMeta = null;
 
 let editDraggingPhoto = false;
 
@@ -7283,6 +7518,9 @@ function loadProfileEditor(){
   const photo =
     currentUserProfile?.profilePhoto || null;
     editPhotoData = photo;
+    editPhotoMeta = currentUserProfile?.profilePhotoMeta
+      ? normalizeFileMetadata(currentUserProfile.profilePhotoMeta)
+      : null;
 
   const position =
     currentUserProfile?.profilePhotoPosition || {};
@@ -7364,16 +7602,16 @@ document
 
 document
   .getElementById('profileEditPhotoInput')
-  ?.addEventListener('change', (event) => {
+  ?.addEventListener('change', async (event) => {
 
     const file = event.target.files?.[0];
 
     if(!file) return;
 
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      editPhotoData = reader.result;
+    try {
+      const prepared = await prepareProfilePhoto(file);
+      editPhotoData = prepared?.dataUrl || null;
+      editPhotoMeta = prepared?.meta || null;
 
       const preview =
         document.getElementById('profileEditPhotoPreview');
@@ -7382,7 +7620,7 @@ document
 
       preview.innerHTML = `
         <img
-          src="${reader.result}"
+          src="${escapeHtml(editPhotoData)}"
           alt="Profile photo"
           draggable="false"
         >
@@ -7400,9 +7638,12 @@ document
       }
 
       updateEditPhotoPosition();
-    };
-
-    reader.readAsDataURL(file);
+      console.log('✅ Profile photo optimized:', prepared.meta);
+    } catch (error) {
+      console.error('❌ Gagal menyiapkan profile photo:', error);
+      alert(error?.message || 'Profile photo could not be prepared.');
+      event.target.value = '';
+    }
   });
 
 document
@@ -7535,6 +7776,10 @@ document
             username,
             profilePhoto:
               editPhotoData || null,
+            profilePhotoMeta:
+              editPhotoData
+                ? editPhotoMeta
+                : null,
             profilePhotoPosition: {
               x: editPhotoX,
               y: editPhotoY,
@@ -7555,6 +7800,9 @@ document
       if(currentMember){
         currentMember.name = username;
         currentMember.profilePhoto = editPhotoData || null;
+        currentMember.profilePhotoMeta = editPhotoData
+          ? editPhotoMeta
+          : null;
         currentMember.profilePhotoPosition = {
           x: editPhotoX,
           y: editPhotoY,
@@ -7617,6 +7865,17 @@ onAuthStateChanged(auth, async (user) => {
 
   try {
     let profile = await getUserProfile(user.uid);
+
+    if (profile) {
+      const resolvedPhoto = resolveProfilePhoto(profile, user);
+      if (!profile.profilePhoto && resolvedPhoto.data) {
+        profile = {
+          ...profile,
+          profilePhoto: resolvedPhoto.data,
+          profilePhotoMeta: resolvedPhoto.meta
+        };
+      }
+    }
 
     if (!profile) {
       showProfileSetup(user);
@@ -7684,6 +7943,17 @@ function showWelcome(){
     if (!user) return;
 
     let profile = await window.getUserProfile(user.uid);
+
+    if (profile) {
+      const resolvedPhoto = resolveProfilePhoto(profile, user);
+      if (!profile.profilePhoto && resolvedPhoto.data) {
+        profile = {
+          ...profile,
+          profilePhoto: resolvedPhoto.data,
+          profilePhotoMeta: resolvedPhoto.meta
+        };
+      }
+    }
 
 console.log('Firebase user:', user);
 console.log('Firestore profile:', profile);

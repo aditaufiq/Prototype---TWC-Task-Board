@@ -41,6 +41,437 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 
+// Stage 11.1 — file metadata groundwork.
+// File bytes are intentionally NOT moved anywhere yet; these helpers let the
+// app describe files independently from their eventual storage location.
+export const FILE_METADATA_SCHEMA_VERSION = 1;
+
+// Stage 11.2 — profile photo handling stays Firestore-only for now.
+// We optimize the image in the browser before writing it to Firestore so
+// profile documents do not carry the user's original camera-sized file.
+export const PROFILE_PHOTO_CONFIG = Object.freeze({
+  maxInputBytes: 10 * 1024 * 1024,
+  maxOutputBytes: 220 * 1024,
+  maxDimension: 512,
+  fallbackDimensions: [448, 384, 320],
+  qualitySteps: [0.82, 0.74, 0.66, 0.58]
+});
+
+function dataUrlByteSize(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return 0;
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex < 0) return 0;
+
+  const base64 = dataUrl.slice(commaIndex + 1);
+  const padding = base64.endsWith('==') ? 2 : (base64.endsWith('=') ? 1 : 0);
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function loadImageForProcessing(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('The selected image could not be read.'));
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+function canvasDataUrl(canvas, mimeType, quality) {
+  const dataUrl = canvas.toDataURL(mimeType, quality);
+  // Some browsers ignore unsupported MIME types and silently return PNG.
+  const actualMimeType = dataUrl.slice(5, dataUrl.indexOf(';')) || mimeType;
+  return {
+    dataUrl,
+    mimeType: actualMimeType,
+    size: dataUrlByteSize(dataUrl)
+  };
+}
+
+export async function prepareProfilePhoto(file, extra = {}) {
+  if (!file) return null;
+
+  const mimeType = String(file.type || '').toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    throw new Error('Profile photo must be an image file.');
+  }
+
+  const inputSize = Number(file.size || 0);
+  if (inputSize > PROFILE_PHOTO_CONFIG.maxInputBytes) {
+    throw new Error('Profile photo is too large. Please choose an image under 10 MB.');
+  }
+
+  const image = await loadImageForProcessing(file);
+  const sourceWidth = Math.max(1, Number(image.naturalWidth || image.width || 1));
+  const sourceHeight = Math.max(1, Number(image.naturalHeight || image.height || 1));
+  const sourceMax = Math.max(sourceWidth, sourceHeight);
+
+  const dimensions = [
+    PROFILE_PHOTO_CONFIG.maxDimension,
+    ...PROFILE_PHOTO_CONFIG.fallbackDimensions
+  ];
+
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d', { alpha: true });
+  if (!context) {
+    throw new Error('Your browser cannot prepare the profile photo.');
+  }
+
+  // Prefer WebP when the browser supports it. JPEG is the fallback.
+  const probeCanvas = document.createElement('canvas');
+  probeCanvas.width = 1;
+  probeCanvas.height = 1;
+  const webpSupported = probeCanvas.toDataURL('image/webp').startsWith('data:image/webp');
+  const outputMime = webpSupported ? 'image/webp' : 'image/jpeg';
+
+  for (const maxDimension of dimensions) {
+    const scale = Math.min(1, maxDimension / sourceMax);
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
+
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+
+    if (outputMime === 'image/jpeg') {
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, width, height);
+
+    for (const quality of PROFILE_PHOTO_CONFIG.qualitySteps) {
+      const result = canvasDataUrl(canvas, outputMime, quality);
+      if (result.size <= PROFILE_PHOTO_CONFIG.maxOutputBytes) {
+        const originalName = String(file.name || 'profile-photo');
+        const originalBase = originalName.replace(/\.[^.]+$/, '') || 'profile-photo';
+        const extension = result.mimeType === 'image/webp' ? 'webp' : 'jpg';
+
+        return {
+          dataUrl: result.dataUrl,
+          meta: buildFileMetadata(
+            {
+              name: `${originalBase}.${extension}`,
+              type: result.mimeType,
+              size: result.size
+            },
+            {
+              ...extra,
+              source: 'embedded-data-url',
+              storageProvider: null,
+              storagePath: null,
+              downloadUrl: null,
+              width,
+              height
+            }
+          )
+        };
+      }
+    }
+  }
+
+  throw new Error('Profile photo could not be compressed below 220 KB. Please choose a simpler image.');
+}
+
+export function buildProfilePhotoUrlMetadata(url, extra = {}) {
+  if (!url) return null;
+
+  return normalizeFileMetadata({
+    ...extra,
+    schemaVersion: FILE_METADATA_SCHEMA_VERSION,
+    name: extra.name || 'Google profile photo',
+    mimeType: extra.mimeType || 'image/*',
+    size: Number(extra.size || 0),
+    source: 'auth-photo-url',
+    storageProvider: null,
+    storagePath: null,
+    downloadUrl: url,
+    uploadedByUid: extra.uploadedByUid || auth.currentUser?.uid || null,
+    uploadedAt: extra.uploadedAt || null
+  });
+}
+
+export function buildFileMetadata(file, extra = {}) {
+  if (!file) return null;
+
+  return {
+    schemaVersion: FILE_METADATA_SCHEMA_VERSION,
+    id: extra.id || null,
+    name: String(file.name || extra.name || 'Unnamed file'),
+    mimeType: String(file.type || extra.mimeType || 'application/octet-stream'),
+    size: Number(file.size || extra.size || 0),
+    source: extra.source || 'local-selection',
+    storageProvider: extra.storageProvider || null,
+    storagePath: extra.storagePath || null,
+    downloadUrl: extra.downloadUrl || null,
+    uploadedByUid: extra.uploadedByUid || auth.currentUser?.uid || null,
+    uploadedAt: extra.uploadedAt || new Date().toISOString(),
+    width: Number.isFinite(Number(extra.width)) ? Number(extra.width) : null,
+    height: Number.isFinite(Number(extra.height)) ? Number(extra.height) : null
+  };
+}
+
+export function normalizeFileMetadata(meta, fallback = {}) {
+  const source = meta || {};
+  const dataUrl = fallback.data || source.data || '';
+  const isEmbeddedLegacy = !source.source && Boolean(dataUrl);
+
+  return {
+    schemaVersion: Number(source.schemaVersion || FILE_METADATA_SCHEMA_VERSION),
+    id: source.id || fallback.id || null,
+    name: String(source.name || fallback.name || 'Unnamed file'),
+    mimeType: String(source.mimeType || source.type || fallback.mimeType || fallback.type || 'application/octet-stream'),
+    size: Number(source.size || fallback.size || 0),
+    source: source.source || (isEmbeddedLegacy ? 'legacy-data-url' : 'unknown'),
+    storageProvider: source.storageProvider || null,
+    storagePath: source.storagePath || null,
+    downloadUrl: source.downloadUrl || source.url || null,
+    uploadedByUid: source.uploadedByUid || fallback.uploadedByUid || null,
+    uploadedAt: source.uploadedAt || fallback.uploadedAt || null,
+    resourceType: source.resourceType || fallback.resourceType || null,
+    resourceId: source.resourceId || fallback.resourceId || null,
+    accessScope: source.accessScope || fallback.accessScope || null,
+    manageScope: source.manageScope || fallback.manageScope || null,
+    width: source.width == null ? null : Number(source.width),
+    height: source.height == null ? null : Number(source.height),
+    originalSize: source.originalSize == null
+      ? (fallback.originalSize == null ? null : Number(fallback.originalSize))
+      : Number(source.originalSize)
+  };
+}
+
+// Stage 11.3 — task attachment handling stays Firestore-embedded for now.
+// The browser normalizes small attachments and keeps an explicit metadata
+// record so a future storage backend can replace the `data` field cleanly.
+export const TASK_ATTACHMENT_ACCESS = Object.freeze({
+  readScope: 'task-readers',
+  manageScope: 'task-editors',
+  resourceType: 'task'
+});
+
+export function buildTaskAttachmentMetadata(meta, taskId) {
+  const normalized = normalizeFileMetadata(meta);
+  return {
+    ...normalized,
+    resourceType: TASK_ATTACHMENT_ACCESS.resourceType,
+    resourceId: taskId != null ? String(taskId) : null,
+    accessScope: TASK_ATTACHMENT_ACCESS.readScope,
+    manageScope: TASK_ATTACHMENT_ACCESS.manageScope
+  };
+}
+
+export function isTaskAttachmentReadable(metadata, taskId) {
+  const normalized = buildTaskAttachmentMetadata(metadata, taskId);
+  return normalized.resourceType === TASK_ATTACHMENT_ACCESS.resourceType
+    && (!normalized.resourceId || String(normalized.resourceId) === String(taskId));
+}
+
+export const TASK_ATTACHMENT_CONFIG = Object.freeze({
+  maxInputBytes: 5 * 1024 * 1024,
+  maxEmbeddedFileBytes: 300 * 1024,
+  maxEmbeddedTotalBytes: 520 * 1024,
+  maxImageDimension: 1600,
+  maxImageBytes: 260 * 1024,
+  imageQualitySteps: [0.82, 0.74, 0.66, 0.58],
+  allowedMimeTypes: [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/csv'
+  ]
+});
+
+function createAttachmentId() {
+  const suffix = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `att-${suffix}`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => resolve(String(event.target?.result || ''));
+    reader.onerror = () => reject(new Error(`Could not read ${file?.name || 'the selected file'}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadAttachmentImage(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(`Could not process ${file?.name || 'the selected image'}.`));
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+function prepareEmbeddedImageAttachment(file) {
+  return loadAttachmentImage(file).then(image => {
+    const sourceWidth = Math.max(1, Number(image.naturalWidth || image.width || 1));
+    const sourceHeight = Math.max(1, Number(image.naturalHeight || image.height || 1));
+    const sourceMax = Math.max(sourceWidth, sourceHeight);
+    const maxDimension = TASK_ATTACHMENT_CONFIG.maxImageDimension;
+    const scale = Math.min(1, maxDimension / sourceMax);
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Your browser cannot prepare this image attachment.');
+
+    canvas.width = width;
+    canvas.height = height;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, width, height);
+
+    const probe = document.createElement('canvas');
+    probe.width = 1;
+    probe.height = 1;
+    const webpSupported = probe.toDataURL('image/webp').startsWith('data:image/webp');
+    const outputMime = webpSupported ? 'image/webp' : 'image/jpeg';
+
+    for (const quality of TASK_ATTACHMENT_CONFIG.imageQualitySteps) {
+      const dataUrl = canvas.toDataURL(outputMime, quality);
+      const size = dataUrlByteSize(dataUrl);
+      if (size <= TASK_ATTACHMENT_CONFIG.maxImageBytes) {
+        return {
+          dataUrl,
+          size,
+          mimeType: outputMime,
+          width,
+          height
+        };
+      }
+    }
+
+    throw new Error(`Image attachment "${file.name}" is too detailed to fit the current task file budget.`);
+  });
+}
+
+export async function prepareTaskAttachments(files = [], existingAttachments = []) {
+  const selectedFiles = Array.isArray(files) ? files : [];
+  const existing = Array.isArray(existingAttachments) ? existingAttachments : [];
+
+  const existingBytes = existing.reduce((total, attachment) => {
+    return total + dataUrlByteSize(attachment?.data || '');
+  }, 0);
+
+  const prepared = [];
+  let runningBytes = existingBytes;
+
+  for (const file of selectedFiles) {
+    if (!file) continue;
+
+    const mimeType = String(file.type || 'application/octet-stream').toLowerCase();
+    const inputSize = Number(file.size || 0);
+    if (inputSize > TASK_ATTACHMENT_CONFIG.maxInputBytes) {
+      throw new Error(`"${file.name}" is larger than 5 MB.`);
+    }
+
+    const isImage = mimeType.startsWith('image/');
+    const isAllowedDocument = TASK_ATTACHMENT_CONFIG.allowedMimeTypes.includes(mimeType);
+    if (!isImage && !isAllowedDocument) {
+      throw new Error(`"${file.name}" is not a supported attachment type.`);
+    }
+
+    let dataUrl;
+    let finalSize;
+    let finalMime = mimeType;
+    let width = null;
+    let height = null;
+
+    if (isImage && ['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+      const imageResult = await prepareEmbeddedImageAttachment(file);
+      dataUrl = imageResult.dataUrl;
+      finalSize = imageResult.size;
+      finalMime = imageResult.mimeType;
+      width = imageResult.width;
+      height = imageResult.height;
+    } else {
+      if (inputSize > TASK_ATTACHMENT_CONFIG.maxEmbeddedFileBytes) {
+        throw new Error(`"${file.name}" is larger than 300 KB. Please use a smaller file for this Firestore-only version.`);
+      }
+      dataUrl = await readFileAsDataUrl(file);
+      finalSize = dataUrlByteSize(dataUrl);
+      if (finalSize > TASK_ATTACHMENT_CONFIG.maxEmbeddedFileBytes) {
+        throw new Error(`"${file.name}" is larger than the current embedded attachment limit.`);
+      }
+    }
+
+    if ((runningBytes + finalSize) > TASK_ATTACHMENT_CONFIG.maxEmbeddedTotalBytes) {
+      throw new Error(`Task attachments exceed the temporary ${Math.round(TASK_ATTACHMENT_CONFIG.maxEmbeddedTotalBytes / 1024)} KB workspace file budget.`);
+    }
+
+    const id = createAttachmentId();
+    const meta = buildTaskAttachmentMetadata(
+      buildFileMetadata(
+        { name: file.name, type: finalMime, size: finalSize },
+        {
+          id,
+          source: 'embedded-data-url',
+          storageProvider: null,
+          storagePath: null,
+          downloadUrl: null,
+          uploadedByUid: auth.currentUser?.uid || null,
+          originalSize: inputSize,
+          width,
+          height
+        }
+      ),
+      null
+    );
+    meta.originalSize = inputSize;
+
+    prepared.push({
+      attachment: {
+        id,
+        name: String(file.name || 'attachment'),
+        size: finalSize,
+        type: finalMime,
+        data: dataUrl
+      },
+      metadata: meta
+    });
+
+    runningBytes += finalSize;
+  }
+
+  return prepared;
+}
+
+export function attachmentDataUrlSize(dataUrl) {
+  return dataUrlByteSize(dataUrl);
+}
+
 provider.setCustomParameters({
   prompt: 'select_account'
 });
@@ -1199,6 +1630,15 @@ async function deleteTask(taskId) {
 }
 
 window.loginWithGoogle = loginWithGoogle;
+window.FILE_METADATA_SCHEMA_VERSION = FILE_METADATA_SCHEMA_VERSION;
+window.buildFileMetadata = buildFileMetadata;
+window.normalizeFileMetadata = normalizeFileMetadata;
+window.PROFILE_PHOTO_CONFIG = PROFILE_PHOTO_CONFIG;
+window.TASK_ATTACHMENT_CONFIG = TASK_ATTACHMENT_CONFIG;
+window.prepareProfilePhoto = prepareProfilePhoto;
+window.prepareTaskAttachments = prepareTaskAttachments;
+window.attachmentDataUrlSize = attachmentDataUrlSize;
+window.buildProfilePhotoUrlMetadata = buildProfilePhotoUrlMetadata;
 window.getUserProfile = getUserProfile;
 window.getMember = getMember;
 window.subscribeToMembers = subscribeToMembers;
@@ -1243,6 +1683,15 @@ export {
   signOut,
   onAuthStateChanged,
   loginWithGoogle,
+  FILE_METADATA_SCHEMA_VERSION,
+  buildFileMetadata,
+  normalizeFileMetadata,
+  PROFILE_PHOTO_CONFIG,
+  TASK_ATTACHMENT_CONFIG,
+  prepareProfilePhoto,
+  prepareTaskAttachments,
+  attachmentDataUrlSize,
+  buildProfilePhotoUrlMetadata,
   getUserProfile,
   getMember,
   subscribeToMembers,
