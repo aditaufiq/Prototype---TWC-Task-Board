@@ -1160,7 +1160,12 @@ async function replaceWorkspaceData(payload, actorUid) {
   writeOperations.push({
     type: 'set',
     ref: doc(db, 'counters', 'tasks'),
-    data: { lastNumber: maxTaskNumber, updatedAt: new Date().toISOString() },
+    data: {
+      lastNumber: maxTaskNumber,
+      updatedAt: new Date().toISOString(),
+      importSource: 'workspaceImport',
+      importedByUid: actorUid
+    },
     options: { merge: true }
   });
 
