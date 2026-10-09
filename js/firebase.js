@@ -720,50 +720,67 @@ async function deleteProductGroup(divisionId) {
   await deleteDoc(doc(db, "products", id));
 }
 
-async function saveProductGroupAndTasks(divisionId, items, tasks) {
+async function saveProductGroupAndTasks(divisionId, items, tasks, expectedVersions = []) {
   const id = String(divisionId || '').trim();
 
-  if (!id) {
-    throw new Error("Division ID product tidak boleh kosong.");
-  }
+  if (!id) throw new Error("Division ID product tidak boleh kosong.");
 
   const normalizedItems = Array.isArray(items)
     ? items.map(item => String(item).trim()).filter(Boolean)
     : [];
+  const taskList = Array.isArray(tasks) ? tasks.filter(task => task?.id) : [];
+  const versions = Array.isArray(expectedVersions) ? expectedVersions : [];
 
-  const batch = writeBatch(db);
-  const productRef = doc(db, "products", id);
-
-  batch.set(
-    productRef,
-    {
-      divisionId: id,
-      items: normalizedItems,
-      updatedAt: new Date().toISOString()
-    },
-    { merge: true }
-  );
-
-  if (Array.isArray(tasks)) {
-    for (const task of tasks) {
-      if (!task?.id) continue;
-
-      const taskRef = doc(db, "tasks", String(task.id));
-
-      batch.update(taskRef, {
-        ...task,
-        updatedAt: task.updatedAt || new Date().toISOString()
-      });
-    }
+  if (taskList.length && versions.length !== taskList.length) {
+    const error = new Error('Versi task dasar tidak lengkap untuk update product.');
+    error.code = 'task/version-required';
+    throw error;
   }
 
-  await batch.commit();
+  const productRef = doc(db, "products", id);
+  const taskRefs = taskList.map(task => doc(db, "tasks", String(task.id)));
+  const now = new Date().toISOString();
+  const actorUid = currentAuthUid();
 
-  return {
-    divisionId: id,
-    items: normalizedItems,
-    tasks: Array.isArray(tasks) ? tasks : []
-  };
+  const savedRevisions = await runTransaction(db, async transaction => {
+    const snapshots = [];
+    for (const taskRef of taskRefs) snapshots.push(await transaction.get(taskRef));
+
+    snapshots.forEach((snapshot, index) => {
+      if (!snapshot.exists()) {
+        throw new Error(`Task ${taskList[index].id} tidak ditemukan di server.`);
+      }
+      assertExpectedTaskVersion(taskList[index].id, snapshot.data(), versions[index]);
+    });
+
+    transaction.set(productRef, {
+      divisionId: id,
+      items: normalizedItems,
+      updatedAt: now
+    }, { merge: true });
+
+    const nextRevisions = [];
+    snapshots.forEach((snapshot, index) => {
+      const current = snapshot.data() || {};
+      const nextRevision = taskRevisionNumber(current.revision) + 1;
+      nextRevisions.push(nextRevision);
+      transaction.update(taskRefs[index], {
+        product: taskList[index].product || '',
+        updatedAt: taskList[index].updatedAt || now,
+        updatedByUid: actorUid,
+        revision: nextRevision
+      });
+    });
+
+    return nextRevisions;
+  });
+
+  taskList.forEach((task, index) => {
+    task.revision = savedRevisions[index];
+    task.updatedByUid = actorUid;
+  });
+
+  return { divisionId: id, items: normalizedItems, tasks: taskList };
 }
 
 async function getAllComments() {
@@ -1122,6 +1139,33 @@ function currentAuthUid() {
   return auth.currentUser?.uid || null;
 }
 
+function taskRevisionNumber(value) {
+  const revision = Number(value);
+  return Number.isInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+function assertExpectedTaskVersion(taskId, serverData, expectedVersion) {
+  if (!expectedVersion) return;
+
+  const expectedUpdatedAt = expectedVersion.updatedAt == null
+    ? null
+    : String(expectedVersion.updatedAt);
+  const actualUpdatedAt = serverData?.updatedAt == null
+    ? null
+    : String(serverData.updatedAt);
+  const expectedRevision = taskRevisionNumber(expectedVersion.revision);
+  const actualRevision = taskRevisionNumber(serverData?.revision);
+
+  if (expectedUpdatedAt !== actualUpdatedAt || expectedRevision !== actualRevision) {
+    const error = new Error(`Task ${String(taskId)} berubah setelah dibuka. Muat data terbaru sebelum menyimpan lagi.`);
+    error.code = 'task/conflict';
+    error.taskId = String(taskId);
+    error.expectedVersion = { updatedAt: expectedUpdatedAt, revision: expectedRevision };
+    error.actualVersion = { updatedAt: actualUpdatedAt, revision: actualRevision };
+    throw error;
+  }
+}
+
 function addTaskEventNotificationsToBatch(batch, taskId, notificationRequests, actorUid) {
   const requests = Array.isArray(notificationRequests) ? notificationRequests : [];
   const now = new Date().toISOString();
@@ -1203,6 +1247,7 @@ async function addTask(task, notificationRequests = []) {
   task.createdByUid = createdByUid;
   task.updatedByUid = actorUid;
   task.updatedAt = task.updatedAt || now;
+  task.revision = taskRevisionNumber(task.revision);
 
   // STEP 1: create the task by itself.
   // A notification permission problem must never roll back the new task.
@@ -1285,81 +1330,131 @@ async function addTask(task, notificationRequests = []) {
   return task;
 }
 
-async function updateTask(taskId, taskData, notificationRequests = []) {
+async function updateTask(taskId, taskData, notificationRequests = [], expectedVersion = null) {
   const taskRef = doc(db, "tasks", String(taskId));
   const actorUid = currentAuthUid();
   const now = new Date().toISOString();
+  const updatedAt = taskData.updatedAt || now;
 
-  const batch = writeBatch(db);
-  batch.update(taskRef, {
-    ...taskData,
-    updatedByUid: actorUid,
-    updatedAt: taskData.updatedAt || now
+  if (!actorUid) throw new Error('Session Firebase tidak tersedia. Silakan login ulang.');
+
+  const nextRevision = await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(taskRef);
+    if (!snapshot.exists()) throw new Error(`Task ${String(taskId)} tidak ditemukan di server.`);
+
+    const serverData = snapshot.data() || {};
+    assertExpectedTaskVersion(taskId, serverData, expectedVersion);
+    const revision = taskRevisionNumber(serverData.revision) + 1;
+
+    transaction.update(taskRef, {
+      ...taskData,
+      revision,
+      updatedByUid: actorUid,
+      updatedAt
+    });
+
+    // Keep the source task and its event notification atomic. The transaction
+    // first verifies that the version the user edited is still the current one.
+    addTaskEventNotificationsToBatch(transaction, String(taskId), notificationRequests, actorUid);
+    return revision;
   });
 
-  addTaskEventNotificationsToBatch(batch, String(taskId), notificationRequests, actorUid);
-
-  await batch.commit();
+  // Reflect the committed version back into the caller's in-memory object.
+  taskData.revision = nextRevision;
+  taskData.updatedByUid = actorUid;
+  taskData.updatedAt = updatedAt;
   return taskData;
 }
 
-async function updateTasksBatch(tasks, notificationRequests = []) {
-  const batch = writeBatch(db);
-  const now = new Date().toISOString();
-
-  for (const task of tasks) {
-    const taskRef = doc(db, "tasks", String(task.id));
-    batch.update(taskRef, {
-      ...task,
-      updatedByUid: currentAuthUid(),
-      updatedAt: task.updatedAt || now
-    });
+async function updateTasksBatch(tasks, notificationRequests = [], expectedVersions = []) {
+  const taskList = Array.isArray(tasks) ? tasks.filter(task => task?.id) : [];
+  if (!taskList.length) return taskList;
+  const versions = Array.isArray(expectedVersions) ? expectedVersions : [];
+  if (versions.length !== taskList.length) {
+    const error = new Error('Versi dasar task tidak lengkap untuk bulk update.');
+    error.code = 'task/version-required';
+    throw error;
   }
 
   const actorUid = currentAuthUid();
-  const seenNotificationKeys = new Set();
-  for (const request of Array.isArray(notificationRequests) ? notificationRequests : []) {
-    const recipientUid = String(request?.recipientUid || '').trim();
-    const recipientMemberId = String(request?.recipientMemberId || '').trim();
-    const taskId = String(request?.taskId || '');
-    if (!recipientUid || !recipientMemberId || !taskId || !actorUid) continue;
-    if (recipientUid === String(actorUid)) continue;
+  if (!actorUid) throw new Error('Session Firebase tidak tersedia. Silakan login ulang.');
+  const taskRefs = taskList.map(task => doc(db, "tasks", String(task.id)));
+  const now = new Date().toISOString();
+  const requests = Array.isArray(notificationRequests) ? notificationRequests : [];
 
-    const key = `${taskId}|${request.sourceEvent || request.type}|${recipientUid}`;
-    if (seenNotificationKeys.has(key)) continue;
-    seenNotificationKeys.add(key);
+  const savedRevisions = await runTransaction(db, async transaction => {
+    const snapshots = [];
+    // All reads happen before any writes, as required by Firestore transactions.
+    for (const taskRef of taskRefs) snapshots.push(await transaction.get(taskRef));
 
-    const eventAt = request.eventAt || now;
-    const event = request.sourceEvent || request.type || 'update';
-    const notificationId = `task-${taskId}-${event}-${String(eventAt).replace(/[^0-9A-Za-z]/g, '')}-${recipientMemberId}`;
-    const notificationRef = doc(db, 'users', recipientUid, 'notifications', notificationId);
-
-    batch.set(notificationRef, {
-      id: notificationId,
-      recipientUid,
-      recipientMemberId,
-      type: request.type || 'review',
-      priority: request.priority || 'normal',
-      title: request.title || 'Task update',
-      body: String(request.body || ''),
-      taskId,
-      commentId: null,
-      sourceType: 'taskEvent',
-      sourceId: taskId,
-      sourceEvent: event,
-      actorUid: String(actorUid),
-      actorMemberId: request.actorMemberId || null,
-      actorName: request.actorName || null,
-      read: false,
-      at: eventAt,
-      createdAt: now,
-      updatedAt: now,
-      legacy: false
+    snapshots.forEach((snapshot, index) => {
+      if (!snapshot.exists()) throw new Error(`Task ${taskList[index].id} tidak ditemukan di server.`);
+      assertExpectedTaskVersion(taskList[index].id, snapshot.data(), versions[index]);
     });
-  }
 
-  await batch.commit();
-  return tasks;
+    const nextRevisions = [];
+    snapshots.forEach((snapshot, index) => {
+      const current = snapshot.data() || {};
+      const revision = taskRevisionNumber(current.revision) + 1;
+      nextRevisions.push(revision);
+      transaction.update(taskRefs[index], {
+        ...taskList[index],
+        revision,
+        updatedByUid: actorUid,
+        updatedAt: taskList[index].updatedAt || now
+      });
+    });
+
+    const seenNotificationKeys = new Set();
+    for (const request of requests) {
+      const recipientUid = String(request?.recipientUid || '').trim();
+      const recipientMemberId = String(request?.recipientMemberId || '').trim();
+      const notificationTaskId = String(request?.taskId || '');
+      if (!recipientUid || !recipientMemberId || !notificationTaskId || !actorUid) continue;
+      if (recipientUid === String(actorUid)) continue;
+      if (request?.sourceType !== 'taskEvent') continue;
+
+      const event = request.sourceEvent || request.type || 'update';
+      const key = `${notificationTaskId}|${event}|${recipientUid}`;
+      if (seenNotificationKeys.has(key)) continue;
+      seenNotificationKeys.add(key);
+
+      const eventAt = request.eventAt || now;
+      const notificationId = `task-${notificationTaskId}-${event}-${String(eventAt).replace(/[^0-9A-Za-z]/g, '')}-${recipientMemberId}`;
+      const notificationRef = doc(db, 'users', recipientUid, 'notifications', notificationId);
+      transaction.set(notificationRef, {
+        id: notificationId,
+        recipientUid,
+        recipientMemberId,
+        type: request.type || 'review',
+        priority: request.priority || 'normal',
+        title: request.title || 'Task update',
+        body: String(request.body || ''),
+        taskId: notificationTaskId,
+        commentId: null,
+        sourceType: 'taskEvent',
+        sourceId: notificationTaskId,
+        sourceEvent: event,
+        actorUid: String(actorUid),
+        actorMemberId: request.actorMemberId || null,
+        actorName: request.actorName || null,
+        read: false,
+        at: eventAt,
+        createdAt: now,
+        updatedAt: now,
+        legacy: false
+      });
+    }
+
+    return nextRevisions;
+  });
+
+  taskList.forEach((task, index) => {
+    task.revision = savedRevisions[index];
+    task.updatedByUid = actorUid;
+    task.updatedAt = task.updatedAt || now;
+  });
+  return taskList;
 }
 
 async function deleteTasksBatch(taskIds) {
@@ -1413,6 +1508,7 @@ function normalizeImportedTask(task, actorUid) {
     updatedByUid: task?.updatedByUid || actorUid,
     createdAt,
     updatedAt: task?.updatedAt || createdAt,
+    revision: 0,
     status: task?.status || 'todo',
     statusHistory: Array.isArray(task?.statusHistory) && task.statusHistory.length
       ? task.statusHistory
