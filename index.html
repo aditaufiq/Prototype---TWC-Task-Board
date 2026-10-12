@@ -706,7 +706,7 @@
 .notification-high-priority{border-left:3px solid var(--high)!important;background:#FFFAFA!important}.notification-title{font-weight:650}.notification-item.unread .notification-title{font-weight:700}
 .needs-attention-panel{border-color:#E8ECEE}.needs-attention-panel .dashboard-panel-head{margin-bottom:.2rem}.needs-attention-count{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 .45rem;border-radius:999px;background:var(--surface-soft);color:var(--ink);font-size:.65rem;font-weight:700}.needs-attention-list{display:flex;flex-direction:column;gap:.35rem}.attention-item{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:.65rem;width:100%;border:1px solid transparent;background:var(--surface-soft);border-radius:8px;padding:.55rem .6rem;text-align:left;font-family:inherit}.attention-click{cursor:pointer}.attention-click:hover{border-color:var(--line);background:var(--bg)}.attention-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;background:#EDF8F7;color:var(--accent)}.attention-icon.danger{background:#FDECEC;color:var(--high)}.attention-icon.warning{background:#FFF6DF;color:#996500}.attention-icon.review{background:#EDF2FA;color:#3B5BA5}.attention-item strong{display:block;font-size:.71rem;color:var(--ink);line-height:1.35}.attention-item small{display:block;margin-top:.12rem;font-size:.63rem;color:var(--ink-soft)}.attention-arrow{font-size:1rem;color:var(--ink-soft)}.attention-clear{display:flex;align-items:center;gap:.65rem;padding:.65rem .2rem}.attention-clear-icon{width:30px;height:30px;border-radius:50%;background:#EFF5F1;color:#2B7A4B;display:flex;align-items:center;justify-content:center;font-weight:800}.attention-clear strong{display:block;font-size:.72rem}.attention-clear span{display:block;margin-top:.08rem;font-size:.64rem;color:var(--ink-soft)}
 .confirm-overlay{z-index:1200}.confirm-modal{max-width:420px}.confirm-icon{width:38px;height:38px;border-radius:10px;background:#FDECEC;color:var(--high);display:flex;align-items:center;justify-content:center;font-weight:800;margin-bottom:.75rem}.confirm-modal h3{margin-bottom:.35rem}.confirm-modal p{margin:0;color:var(--ink-soft);font-size:.75rem;line-height:1.55}.confirm-danger{background:#B83232!important;border-color:#B83232!important}.confirm-danger:hover{background:#A72828!important}
-.member-manager-head{display:grid;grid-template-columns:1.2fr 1.2fr .7fr .65fr 28px;gap:.55rem;padding:0 .8rem .45rem;color:var(--ink-soft);font-size:.61rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.member-manager-row{display:grid;grid-template-columns:1.2fr 1.2fr .7fr .65fr 28px;align-items:center;gap:.55rem}.member-manager-row input[type="email"],.member-manager-row select{width:100%;min-width:0;padding:.48rem .55rem;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font-family:inherit;font-size:.74rem}.member-person{display:flex;align-items:center;gap:.45rem;min-width:0}.member-person input[type="text"]{flex:1;min-width:0}.active-toggle{display:flex;align-items:center;gap:.35rem;font-size:.67rem;color:var(--ink-soft);white-space:nowrap}.active-toggle input{accent-color:var(--accent)}
+.member-manager-head{display:grid;grid-template-columns:1.15fr 1.1fr .62fr 1fr .58fr 28px;gap:.55rem;padding:0 .8rem .45rem;color:var(--ink-soft);font-size:.61rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.member-manager-row{display:grid;grid-template-columns:1.15fr 1.1fr .62fr 1fr .58fr 28px;align-items:center;gap:.55rem}.member-manager-row input[type="email"],.member-manager-row select{width:100%;min-width:0;padding:.48rem .55rem;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font-family:inherit;font-size:.74rem}.member-person{display:flex;align-items:center;gap:.45rem;min-width:0}.member-person input[type="text"]{flex:1;min-width:0}.active-toggle{display:flex;align-items:center;gap:.35rem;font-size:.67rem;color:var(--ink-soft);white-space:nowrap}.active-toggle input{accent-color:var(--accent)}
 @media (max-width:900px){.member-manager-head{display:none}.member-manager-row{grid-template-columns:1fr}.member-person{width:100%}.member-manager-row .remove-member{justify-self:end}.detail-heading-row{flex-direction:column}.detail-status-stack{align-items:flex-start}.task-result-meta{grid-column:1/-1}}
 
 
@@ -2120,6 +2120,42 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .auth-restore-card span { display:block; margin-top:.18rem; font-size:.62rem; color:#7b8884; }
   @keyframes authRestoreSpin { to { transform: rotate(360deg); } }
 </style>
+
+<style id="department-assignment-gate">
+  body.auth-pending #departmentPendingScreen { display: none !important; }
+  #departmentPendingScreen {
+    position: fixed; inset: 0; z-index: 4500; display: none; place-items: center;
+    padding: 24px; background: #FBFAF7; color: #183B38;
+  }
+  #departmentPendingScreen.visible { display: grid; }
+  .department-pending-card {
+    width: min(460px, 100%); padding: clamp(26px, 5vw, 42px); text-align: center;
+    border: 1px solid rgba(24,59,56,.09); border-radius: 24px;
+    background: rgba(255,255,255,.82); box-shadow: 0 22px 65px rgba(24,59,56,.08);
+  }
+  .department-pending-wordmark { font-size: 2rem; line-height: 1; letter-spacing: -.07em; font-weight: 850; color: #103D37; }
+  .department-pending-wordmark span { color: #B2924F; }
+  .department-pending-submark { margin-top: 5px; font-size: .52rem; letter-spacing: .27em; font-weight: 800; color: #103D37; }
+  .department-pending-rule { width: 42px; height: 2px; margin: 22px auto; background: #B2924F; }
+  .department-pending-eyebrow { color: #78857F; font-size: .62rem; letter-spacing: .16em; font-weight: 800; text-transform: uppercase; }
+  .department-pending-card h1 { margin: 10px 0 8px; color: #103D37; font-size: clamp(1.35rem, 4vw, 1.8rem); letter-spacing: -.045em; }
+  .department-pending-card p { margin: 0; color: #78857F; font-size: .84rem; line-height: 1.65; }
+  .department-pending-email { display: inline-block; margin-top: 17px; padding: 7px 11px; border-radius: 999px; background: #F1F4F0; color: #355A53; font-size: .72rem; overflow-wrap: anywhere; }
+  .department-pending-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 22px 0 10px; color: #8B6F31; font-size: .73rem; font-weight: 700; }
+  .department-pending-dot { width: 7px; height: 7px; background: #B2924F; border-radius: 50%; box-shadow: 0 0 0 4px rgba(178,146,79,.12); }
+  .department-pending-footnote { margin-top: 16px !important; font-size: .68rem !important; }
+  .department-pending-signout { margin-top: 22px; border: 1px solid #DDE4E0; background: white; color: #355A53; border-radius: 999px; padding: 9px 16px; font: inherit; font-size: .73rem; font-weight: 650; cursor: pointer; }
+  .department-pending-signout:hover { background: #F4F7F5; }
+  .member-department-field { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .member-department-status { min-height: 11px; color: var(--ink-soft); font-size: .58rem; line-height: 1.25; }
+  .member-department-status[data-tone="success"] { color: #2F7D4A; }
+  .member-department-status[data-tone="error"] { color: #B83232; }
+  .member-manager-help { margin: -.35rem 0 .8rem; font-size: .68rem; color: var(--ink-soft); line-height: 1.5; }
+  #membersOverlay .modal { width: min(1100px, 96vw); max-width: 96vw; }
+  @media (max-width: 900px) { .member-manager-row { gap: .6rem; } .member-department-field { width: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .department-pending-dot { box-shadow: none; } }
+</style>
+
 </head>
 <body class="auth-pending">
 <div id="authRestoreScreen" aria-live="polite" aria-busy="true">
@@ -2268,6 +2304,22 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 
   </div>
 </div>
+
+<div id="departmentPendingScreen" aria-live="polite" aria-hidden="true">
+  <section class="department-pending-card">
+    <div class="department-pending-wordmark">TW<span>C</span></div>
+    <div class="department-pending-submark">MARKETING TASKBOARD</div>
+    <div class="department-pending-rule" aria-hidden="true"></div>
+    <div class="department-pending-eyebrow">One more step</div>
+    <h1>Your workspace is almost ready</h1>
+    <p>Your profile has been created. An administrator will assign your department before you can access the Marketing workspace.</p>
+    <div class="department-pending-email" id="departmentPendingEmail"></div>
+    <div class="department-pending-status"><span class="department-pending-dot"></span><span>Waiting for department assignment</span></div>
+    <p class="department-pending-footnote">This screen will update automatically after an administrator assigns your department.</p>
+    <button class="department-pending-signout" id="departmentPendingSignOutBtn" type="button">Sign out</button>
+  </section>
+</div>
+
 <div class="app">
 <div class="sidebar">
 <h1>Task Board</h1>
@@ -2527,6 +2579,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <div class="overlay" id="membersOverlay">
 <div class="modal">
 <h3>Manage Members</h3>
+<p class="member-manager-help">Assign a department to activate a new member. Their account will open the workspace automatically after assignment. Roster role is separate from workspace access privileges.</p>
 <div id="memberRows"></div>
 <button class="btn-secondary" id="addMemberBtn" style="margin-top: 0.8rem; width: 100%;">+ Add member</button>
 <div class="modal-actions">
@@ -2689,6 +2742,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   signOut,
   onAuthStateChanged,
   getUserProfile,
+  subscribeToUserProfile,
+  assignMemberDepartment,
   buildFileMetadata,
   normalizeFileMetadata,
   prepareProfilePhoto,
@@ -2862,6 +2917,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         'member';
 
       existingMember.active = true;
+      if (profile && Object.prototype.hasOwnProperty.call(profile, 'department')) existingMember.department = profile.department ?? null;
+      if (profile && Object.prototype.hasOwnProperty.call(profile, 'departmentStatus')) existingMember.departmentStatus = profile.departmentStatus || 'pending';
       if (profile?.authUid) existingMember.authUid = profile.authUid;
       if (profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhoto')) {
         existingMember.profilePhoto = profile.profilePhoto || null;
@@ -2886,6 +2943,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         color: '#0F766E',
         role: profile?.role || 'member',
         active: true,
+        department: profile?.department ?? null,
+        departmentStatus: profile?.departmentStatus || (profile?.department ? 'assigned' : 'pending'),
         ...(profile?.authUid ? { authUid: profile.authUid } : {}),
         ...(profile && Object.prototype.hasOwnProperty.call(profile, 'profilePhoto')
           ? { profilePhoto: profile.profilePhoto || null }
@@ -2947,6 +3006,11 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   let notificationsRealtimeReadyPromise = Promise.resolve();
   let notificationRealtimeInitialized = false;
   let currentUserUid = null;
+  let unsubscribeCurrentUserProfile = null;
+  let currentUserProfileWatchUid = null;
+  let workspaceActivatedUid = null;
+  let workspaceActivationUid = null;
+  let workspaceActivationPromise = null;
 
   members = members.map(m => ({ ...m, email: m.email || `${m.id}@twc.local`, role: m.role || 'member', active: m.active !== false }));
 
@@ -3044,6 +3108,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
         color: '#0F766E',
         role: profile.role || 'member',
         active: true,
+        department: profile.department ?? null,
+        departmentStatus: profile.departmentStatus || (profile.department ? 'assigned' : 'pending'),
         authUid: user.uid,
         profilePhoto: profile.profilePhoto || null,
         profilePhotoPosition: {
@@ -3078,6 +3144,8 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
           color: cachedMember?.color || '#0F766E',
           role: 'member',
           active: true,
+          department: profile.department ?? null,
+          departmentStatus: profile.departmentStatus || (profile.department ? 'assigned' : 'pending'),
           authUid: user.uid,
           profilePhoto: desiredProfilePhoto,
           profilePhotoMeta: desiredProfilePhotoMeta,
@@ -3178,7 +3246,12 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
                   role: m.role || 'member',
                   active: m.active !== false
                 }))
-                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+                .sort((a, b) => {
+                  const aPending = a.departmentStatus === 'pending' ? 0 : 1;
+                  const bPending = b.departmentStatus === 'pending' ? 0 : 1;
+                  if (aPending !== bPending) return aPending - bPending;
+                  return String(a.name || '').localeCompare(String(b.name || ''));
+                });
               console.log('🔄 Realtime members synced:', members.length);
               renderAll();
 
@@ -3813,6 +3886,14 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     notificationsRealtimeReadyPromise = Promise.resolve();
 
     notificationRealtimeInitialized = false;
+    if (typeof unsubscribeCurrentUserProfile === 'function') {
+      try { unsubscribeCurrentUserProfile(); } catch (error) {}
+    }
+    unsubscribeCurrentUserProfile = null;
+    currentUserProfileWatchUid = null;
+    workspaceActivatedUid = null;
+    workspaceActivationUid = null;
+    workspaceActivationPromise = null;
   }
 
   // Shared business data is persisted in Firestore. These compatibility hooks
@@ -7254,14 +7335,52 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   const membersOverlay = document.getElementById('membersOverlay');
   function renderMemberRows(){
     const box = document.getElementById('memberRows');
-    box.innerHTML = `<div class="member-manager-head"><span>Name</span><span>Email</span><span>Role</span><span>Active</span><span></span></div>` + members.map((m, i) => `
+    const departmentOptionsFor = member => {
+      const selected = String(member.department || '');
+      const placeholder = selected
+        ? ''
+        : `<option value="" selected disabled>Assign department…</option>`;
+      return placeholder + sortDepartmentsAlphabetically([...departments]).map(department =>
+        `<option value="${escapeHtml(department.id)}" ${selected === String(department.id) ? 'selected' : ''}>${escapeHtml(department.name)}</option>`
+      ).join('');
+    };
+    box.innerHTML = `<div class="member-manager-head"><span>Name</span><span>Email</span><span>Role</span><span>Department</span><span>Active</span><span></span></div>` + members.map((m, i) => `
       <div class="member-row member-manager-row" data-idx="${i}">
-        <div class="member-person"><input type="color" value="${m.color}" data-field="color"><input type="text" value="${escapeHtml(m.name)}" data-field="name"></div>
+        <div class="member-person"><input type="color" value="${m.color || '#0F766E'}" data-field="color"><input type="text" value="${escapeHtml(m.name)}" data-field="name"></div>
         <input type="email" value="${escapeHtml(m.email || '')}" data-field="email" placeholder="name@company.com">
         <select data-field="role" aria-label="Role for ${escapeHtml(m.name)}"><option value="member" ${(m.role||'member')==='member'?'selected':''}>Member</option><option value="admin" ${(m.role||'member')==='admin'?'selected':''}>Admin</option></select>
+        <div class="member-department-field">
+          <select data-field="department" aria-label="Department for ${escapeHtml(m.name)}">${departmentOptionsFor(m)}</select>
+          <small class="member-department-status" data-tone="${m.departmentStatus === 'assigned' ? 'success' : ''}">${m.departmentStatus === 'pending' ? 'Waiting for assignment' : (m.department ? 'Assigned' : 'Not assigned')}</small>
+        </div>
         <label class="active-toggle"><input type="checkbox" data-field="active" ${(m.active!==false)?'checked':''}><span>${m.active!==false?'Active':'Inactive'}</span></label>
         <button class="remove-member" data-remove="${i}" title="Remove member">✕</button>
       </div>`).join('');
+
+    box.querySelectorAll('select[data-field="department"]').forEach(sel => sel.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx, 10);
+      const member = members[idx];
+      const departmentId = String(e.target.value || '').trim();
+      const status = e.target.closest('.member-department-field')?.querySelector('.member-department-status');
+      if (!member || !departmentId) return;
+      const previous = String(member.department || '');
+      e.target.disabled = true;
+      if (status) { status.textContent = 'Saving assignment…'; status.dataset.tone = ''; }
+      try {
+        await assignMemberDepartment(member.id, member.authUid || '', departmentId);
+        member.department = departmentId;
+        member.departmentStatus = 'assigned';
+        if (status) { status.textContent = 'Department assigned'; status.dataset.tone = 'success'; }
+        renderRoleSelect();
+        renderBoard();
+        // Let the roster's own onSnapshot refresh the row and keep other admins in sync.
+      } catch (error) {
+        console.error('❌ Gagal menetapkan department member:', error);
+        e.target.value = previous;
+        e.target.disabled = false;
+        if (status) { status.textContent = 'Assignment failed — check Firebase Rules'; status.dataset.tone = 'error'; }
+      }
+    }));
     box.querySelectorAll('input[data-field="name"]').forEach(inp => inp.addEventListener('change', async e => {
       const idx = parseInt(e.target.closest('.member-row').dataset.idx);
       const member = members[idx];
@@ -7376,11 +7495,153 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   const screen=document.getElementById('welcomeScreen');
   if(screen){ screen.classList.add('hidden'); }
   document.getElementById('profileSetupScreen')?.classList.add('hidden');
+  document.getElementById('departmentPendingScreen')?.classList.remove('visible');
+  document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   document.querySelector('.app')?.classList.remove('app-hidden');
 }
 
 function finishAuthBoot(){
   document.body.classList.remove('auth-pending');
+}
+
+function isDepartmentAssignmentPending(profile){
+  return Boolean(profile && profile.accessLevel !== 'all' && profile.departmentStatus === 'pending');
+}
+
+function showDepartmentPendingScreen(profile, user){
+  const screen = document.getElementById('departmentPendingScreen');
+  if (!screen) return;
+  document.getElementById('welcomeScreen')?.classList.add('hidden');
+  document.getElementById('profileSetupScreen')?.classList.add('hidden');
+  document.querySelector('.app')?.classList.add('app-hidden');
+  const email = document.getElementById('departmentPendingEmail');
+  if (email) email.textContent = profile?.email || user?.email || '';
+  screen.classList.add('visible');
+  screen.setAttribute('aria-hidden', 'false');
+  finishAuthBoot();
+}
+
+function watchCurrentUserProfile(user){
+  if (!user?.uid) return;
+  if (currentUserProfileWatchUid === user.uid && typeof unsubscribeCurrentUserProfile === 'function') return;
+  if (typeof unsubscribeCurrentUserProfile === 'function') unsubscribeCurrentUserProfile();
+  currentUserProfileWatchUid = user.uid;
+  unsubscribeCurrentUserProfile = subscribeToUserProfile(
+    user.uid,
+    async freshProfile => {
+      if (!freshProfile) return;
+      currentUserProfile = { ...(currentUserProfile || {}), ...freshProfile };
+      if (isDepartmentAssignmentPending(freshProfile)) {
+        showDepartmentPendingScreen(freshProfile, user);
+        return;
+      }
+      if (workspaceActivatedUid !== user.uid) {
+        try {
+          await routeAuthenticatedUser(freshProfile, user, { skipWatch: true });
+        } catch (error) {
+          console.error('❌ Gagal membuka workspace setelah update profile:', error);
+        }
+      }
+    },
+    error => console.error('❌ Gagal memantau status profile user:', error)
+  );
+}
+
+async function routeAuthenticatedUser(profile, user, options = {}){
+  if (!user?.uid) return;
+  if (!profile) {
+    showProfileSetup(user);
+    finishAuthBoot();
+    return;
+  }
+
+  let resolvedProfile = { ...profile };
+  const resolvedPhoto = resolveProfilePhoto(resolvedProfile, user);
+  if (!resolvedProfile.profilePhoto && resolvedPhoto.data) {
+    resolvedProfile.profilePhoto = resolvedPhoto.data;
+    resolvedProfile.profilePhotoMeta = resolvedPhoto.meta;
+  }
+
+  const memberId = makeFirebaseMemberId(resolvedProfile, user);
+  if (!resolvedProfile.memberId && memberId) {
+    try {
+      resolvedProfile = await window.updateUserProfile(user.uid, { memberId });
+      console.log('✅ memberId profile dilengkapi:', memberId);
+    } catch (memberIdError) {
+      console.error('❌ Gagal menyimpan memberId profile:', memberIdError);
+      resolvedProfile = { ...resolvedProfile, memberId };
+    }
+  }
+
+  window.syncLegacyWorkspaceIdentity(
+    memberId,
+    resolvedProfile.accessLevel || 'standard',
+    { ...resolvedProfile, email: resolvedProfile.email || user.email || '', authUid: user.uid }
+  );
+
+  // Keeps the member visible to All Access administrators, but does not start
+  // the shared workspace listeners while the new account awaits assignment.
+  await startMembersRealtime(resolvedProfile, user);
+
+  if (isDepartmentAssignmentPending(resolvedProfile)) {
+    showDepartmentPendingScreen(resolvedProfile, user);
+    if (!options.skipWatch) watchCurrentUserProfile(user);
+    finishAuthBoot();
+    return;
+  }
+
+  await activateWorkspace(resolvedProfile, user);
+  if (!options.skipWatch) watchCurrentUserProfile(user);
+  finishAuthBoot();
+}
+
+async function activateWorkspace(profile, user){
+  if (!user?.uid || !profile) return;
+  if (workspaceActivatedUid === user.uid) {
+    currentUserProfile = profile;
+    enterWorkspace();
+    return;
+  }
+  if (workspaceActivationUid === user.uid && workspaceActivationPromise) {
+    await workspaceActivationPromise;
+    return;
+  }
+
+  workspaceActivationUid = user.uid;
+  workspaceActivationPromise = (async () => {
+    const memberId = makeFirebaseMemberId(profile, user);
+    window.syncLegacyWorkspaceIdentity(
+      memberId,
+      profile.accessLevel || 'standard',
+      { ...profile, email: profile.email || user.email || '', authUid: user.uid }
+    );
+    console.log('✅ Workspace identity synced:', {
+      memberId,
+      username: profile.username,
+      role: profile.role,
+      accessLevel: profile.accessLevel,
+      department: profile.department || null
+    });
+
+    await startMembersRealtime(profile, user);
+    await startDepartmentsRealtime(profile, user);
+    await startProductsRealtime(profile, user);
+    await startTasksRealtime(profile, user);
+    await startActivitiesRealtime(profile, user);
+    await startNotificationsRealtime(profile, user);
+    await checkDeadlineNotifications();
+    currentUserUid = user.uid;
+    workspaceActivatedUid = user.uid;
+    enterWorkspace();
+  })();
+
+  try {
+    await workspaceActivationPromise;
+  } catch (error) {
+    workspaceActivationUid = null;
+    workspaceActivationPromise = null;
+    throw error;
+  }
 }
 
 function showProfileSetup(user){
@@ -7412,6 +7673,8 @@ function showProfileSetup(user){
 
   // Sembunyikan layar lain
   document.getElementById('welcomeScreen')?.classList.add('hidden');
+  document.getElementById('departmentPendingScreen')?.classList.remove('visible');
+  document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   document.querySelector('.app')?.classList.add('app-hidden');
 
   // Isi email dari akun Google
@@ -7561,24 +7824,7 @@ completeProfileButton?.addEventListener('click', async () => {
     );
 
     console.log('Profile berhasil dibuat:', profile);
-
-window.syncLegacyWorkspaceIdentity(
-  memberId,
-  profile.accessLevel || 'standard',
-  {
-    ...profile,
-    email: profile.email || user.email || '',
-    authUid: user.uid
-  }
-);
-
-await startMembersRealtime(profile, user);
-startProductsRealtime(profile, user);
-await startTasksRealtime(profile, user);
-await startActivitiesRealtime(profile, user);
-await startNotificationsRealtime(profile, user);
-await checkDeadlineNotifications();
-enterWorkspace();
+    await routeAuthenticatedUser(profile, user);
 
   }catch(error){
     console.error('Gagal membuat profile:', error);
@@ -8011,17 +8257,17 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) {
     stopAllRealtimeListeners();
     stopCommentsRealtime();
-
     currentUserUid = null;
     currentUserProfile = null;
     currentRole = 'admin';
     currentAccessLevel = 'standard';
+    workspaceActivatedUid = null;
+    workspaceActivationUid = null;
+    workspaceActivationPromise = null;
     notifications = [];
     notificationKnownIds = new Set();
-
     document.getElementById('notificationPanel')?.classList.remove('open');
     document.querySelectorAll('.overlay.open').forEach(el => el.classList.remove('open'));
-
     renderNotifications();
     showWelcome();
     finishAuthBoot();
@@ -8030,72 +8276,55 @@ onAuthStateChanged(auth, async (user) => {
 
   try {
     let profile = await getUserProfile(user.uid);
-
-    if (profile) {
-      const resolvedPhoto = resolveProfilePhoto(profile, user);
-      if (!profile.profilePhoto && resolvedPhoto.data) {
-        profile = {
-          ...profile,
-          profilePhoto: resolvedPhoto.data,
-          profilePhotoMeta: resolvedPhoto.meta
-        };
-      }
-    }
-
     if (!profile) {
       showProfileSetup(user);
       finishAuthBoot();
       return;
     }
 
-    const memberId = makeFirebaseMemberId(profile, user);
-
-    if (!profile.memberId && memberId) {
-      try {
-        profile = await window.updateUserProfile(user.uid, { memberId });
-        console.log('✅ memberId profile dilengkapi:', memberId);
-      } catch (memberIdError) {
-        console.error('❌ Gagal menyimpan memberId profile:', memberIdError);
-      }
+    const resolvedPhoto = resolveProfilePhoto(profile, user);
+    if (!profile.profilePhoto && resolvedPhoto.data) {
+      profile = { ...profile, profilePhoto: resolvedPhoto.data, profilePhotoMeta: resolvedPhoto.meta };
     }
 
-    window.syncLegacyWorkspaceIdentity(
-      memberId,
-      profile.accessLevel || 'standard',
-      {
-        ...profile,
-        email: profile.email || user.email || '',
-        authUid: user.uid
-      }
-    );
-
-    console.log('✅ Workspace identity synced:', {
-      memberId,
-      username: profile.username,
-      role: profile.role,
-      accessLevel: profile.accessLevel
-    });
-
-    await startMembersRealtime(profile, user);
-    await startDepartmentsRealtime(profile, user);
-    await startProductsRealtime(profile, user);
-    await startTasksRealtime(profile, user);
-    await startActivitiesRealtime(profile, user);
-    await startNotificationsRealtime(profile, user);
-
-    // Firebase Auth restores the existing session after a browser refresh.
-    // Once the authoritative realtime snapshots are ready, return the user
-    // directly to the workspace instead of showing the welcome screen again.
-    await checkDeadlineNotifications();
-    enterWorkspace();
-    finishAuthBoot();
-
+    await routeAuthenticatedUser(profile, user);
   } catch (error) {
     console.error('❌ Gagal sinkronisasi identity Firebase:', error);
     showWelcome();
     finishAuthBoot();
   }
 });
+
+// The Firebase Auth state listener is the single source of truth for routing
+// after sign-in. The click handler only starts the Google popup.
+document.getElementById('welcomeGoogleBtn')?.addEventListener('click', async () => {
+  const button = document.getElementById('welcomeGoogleBtn');
+  if (!button || button.disabled) return;
+  try {
+    button.disabled = true;
+    await window.loginWithGoogle();
+  } catch (error) {
+    console.error('Google login gagal:', error);
+    showWelcome();
+    finishAuthBoot();
+    alert('Terjadi masalah saat login. Silakan coba lagi.');
+  } finally {
+    // Scroll reveal will enable the button only after its visibility threshold is met.
+    if (document.getElementById('welcomeScreen')?.classList.contains('is-google-visible')) {
+      button.disabled = false;
+      button.setAttribute('aria-disabled', 'false');
+    }
+  }
+});
+
+document.getElementById('departmentPendingSignOutBtn')?.addEventListener('click', async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error('Gagal sign out dari layar pending:', error);
+  }
+});
+
 let welcomeRevealFallbackHandler = null;
 let welcomeRevealResizeHandler = null;
 let welcomeRevealFrameId = null;
@@ -8199,66 +8428,11 @@ function showWelcome(){
     screen.classList.remove('hidden');
     screen.scrollTop = 0;
   }
+  document.getElementById('departmentPendingScreen')?.classList.remove('visible');
+  document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   resetWelcomeScrollReveal();
   document.querySelector('.app')?.classList.add('app-hidden');
 }
-  document.getElementById('welcomeGoogleBtn')?.addEventListener('click', async () => {
-  try {
-    const user = await window.loginWithGoogle();
-
-    if (!user) return;
-
-    let profile = await window.getUserProfile(user.uid);
-
-    if (profile) {
-      const resolvedPhoto = resolveProfilePhoto(profile, user);
-      if (!profile.profilePhoto && resolvedPhoto.data) {
-        profile = {
-          ...profile,
-          profilePhoto: resolvedPhoto.data,
-          profilePhotoMeta: resolvedPhoto.meta
-        };
-      }
-    }
-
-console.log('Firebase user:', user);
-console.log('Firestore profile:', profile);
-
-if (!profile) {
-  showProfileSetup(user);
-  return;
-}
-
-const memberId = makeFirebaseMemberId(profile, user);
-if (!profile.memberId && memberId) {
-  try {
-    profile = await window.updateUserProfile(user.uid, { memberId });
-  } catch (memberIdError) {
-    console.error('❌ Gagal menyimpan memberId profile:', memberIdError);
-  }
-}
-
-window.syncLegacyWorkspaceIdentity(
-  memberId,
-  profile.accessLevel || 'standard',
-  { ...profile, email: profile.email || user.email || '', authUid: user.uid }
-);
-
-await startMembersRealtime(profile, user);
-await startDepartmentsRealtime(profile, user);
-await startProductsRealtime(profile, user);
-await startTasksRealtime(profile, user);
-await startActivitiesRealtime(profile, user);
-await startNotificationsRealtime(profile, user);
-await checkDeadlineNotifications();
-enterWorkspace();
-
-  } catch (error) {
-    console.error('Google login / profile check gagal:', error);
-
-    alert('Terjadi masalah saat login. Silakan coba lagi.');
-  }
-});
   document.getElementById('signOutBtn')?.addEventListener('click',async ()=>{
     const button = document.getElementById('signOutBtn');
     if (button) button.disabled = true;

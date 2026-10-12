@@ -505,6 +505,20 @@ async function getUserProfile(uid) {
   return snapshot.data();
 }
 
+// Realtime watcher for the signed-in user's own profile. Used to release a new
+// account from the department-pending screen as soon as an All Access admin assigns it.
+function subscribeToUserProfile(uid, onChange, onError) {
+  const userRef = doc(db, "users", String(uid));
+  return onSnapshot(
+    userRef,
+    snapshot => onChange(snapshot.exists() ? { ...snapshot.data(), uid: String(uid) } : null, snapshot),
+    error => {
+      console.error("Realtime current-user profile listener gagal:", error);
+      if (typeof onError === "function") onError(error);
+    }
+  );
+}
+
 async function getMember(memberId) {
   const memberRef = doc(db, "members", String(memberId));
   const snapshot = await getDoc(memberRef);
@@ -626,6 +640,35 @@ async function saveMember(member) {
   }, { merge: true });
 
   return getMember(memberId);
+}
+
+// Atomically assign a department to the roster member and their auth profile.
+// The matching status update is what releases a pending account into the workspace.
+async function assignMemberDepartment(memberId, authUid, departmentId) {
+  const normalizedMemberId = String(memberId || '').trim();
+  const normalizedDepartmentId = String(departmentId || '').trim();
+  const normalizedAuthUid = String(authUid || '').trim();
+
+  if (!normalizedMemberId) throw new Error('Member ID tidak boleh kosong.');
+  if (!normalizedDepartmentId) throw new Error('Pilih department terlebih dahulu.');
+
+  const memberRef = doc(db, 'members', normalizedMemberId);
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+  const assignment = {
+    department: normalizedDepartmentId,
+    departmentStatus: 'assigned',
+    updatedAt: now
+  };
+
+  batch.update(memberRef, assignment);
+  if (normalizedAuthUid) {
+    const userRef = doc(db, 'users', normalizedAuthUid);
+    batch.update(userRef, assignment);
+  }
+
+  await batch.commit();
+  return getMember(normalizedMemberId);
 }
 
 async function deleteMember(memberId) {
@@ -1736,6 +1779,8 @@ window.prepareTaskAttachments = prepareTaskAttachments;
 window.attachmentDataUrlSize = attachmentDataUrlSize;
 window.buildProfilePhotoUrlMetadata = buildProfilePhotoUrlMetadata;
 window.getUserProfile = getUserProfile;
+window.subscribeToUserProfile = subscribeToUserProfile;
+window.assignMemberDepartment = assignMemberDepartment;
 window.getMember = getMember;
 window.subscribeToMembers = subscribeToMembers;
 window.subscribeToDepartments = subscribeToDepartments;
@@ -1780,6 +1825,7 @@ export {
   onAuthStateChanged,
   loginWithGoogle,
   getUserProfile,
+  subscribeToUserProfile,
   getMember,
   subscribeToMembers,
   subscribeToDepartments,
@@ -1787,6 +1833,7 @@ export {
   deleteDepartment,
   seedDefaultDepartmentsIfMissing,
   saveMember,
+  assignMemberDepartment,
   deleteMember,
   subscribeToProducts,
   subscribeToActivities,
