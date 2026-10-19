@@ -4308,7 +4308,7 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     // single authority for administrative UI permissions.
     return currentAccessLevel === 'all';
   }
-  function canManageTask(task){ return !!task && (isAdmin() || currentRole === task.assignee); }
+  function canManageTask(task){ return !isReadOnlyPendingUser() && !!task && (isAdmin() || currentRole === task.assignee); }
   function isTaskContributorMember(task){
     return !!task
       && currentRole !== task.assignee
@@ -4316,7 +4316,9 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
       && task.contributors.includes(currentRole);
   }
   function canEditTask(task){
-    return !!task && (isAdmin() || currentRole === task.assignee || isTaskContributorMember(task));
+    return !isReadOnlyPendingUser()
+      && !!task
+      && (isAdmin() || currentRole === task.assignee || isTaskContributorMember(task));
   }
 
   // Stage 11.4: attachment access follows the parent task's permissions.
@@ -4967,7 +4969,7 @@ function formatDate(str){
         <div class="dashboard-two-col"><section class="dashboard-panel"><div class="dashboard-panel-head"><div><strong>Department Health</strong><span>Completion and active workload</span></div></div><div class="dash-dept-list">${byDivision}</div></section><section class="dashboard-panel"><div class="dashboard-panel-head"><div><strong>Team Workload</strong><span>Open tasks by PIC</span></div></div><div class="dash-work-list">${workloadHtml}</div></section></div>
         <div class="dashboard-bottom-grid"><section class="dashboard-panel dash-attention-panel"><div class="dashboard-panel-head"><div><strong>Needs Attention</strong><span>High-priority workspace signals</span></div><button class="dashboard-link-btn" id="dashboardAttentionBtn">Open Task Board →</button></div><div class="dash-attention-grid">${attentionSummary}</div></section><section class="dashboard-panel dash-snapshot-panel"><div class="dashboard-panel-head"><div><strong>Quick Snapshot</strong><span>At-a-glance workload indicators</span></div></div><div class="dash-snapshot-grid"><div><strong>${todo}</strong><span>To Do</span></div><div><strong>${done}</strong><span>Completed</span></div><div><strong>${dueToday}</strong><span>Due today</span></div><div><strong>${members.filter(m=>tasks.some(t=>t.assignee===m.id && t.status!=='done')).length}</strong><span>Active PICs</span></div></div></section></div>
 
-        <section class="dashboard-panel dashboard-activity-panel"><div class="dashboard-panel-head"><div><strong>Recent Activity</strong><span>Latest workspace changes across the task board</span></div><b>${activities.length}</b></div><div class="activity-feed-list" id="recentActivityList"></div></section>
+        ${!isReadOnlyPendingUser() ? `<section class="dashboard-panel dashboard-activity-panel"><div class="dashboard-panel-head"><div><strong>Recent Activity</strong><span>Latest workspace changes across the task board</span></div><b>${activities.length}</b></div><div class="activity-feed-list" id="recentActivityList"></div></section>` : ''}
       </div>`;
     renderRecentActivity();
     document.getElementById('dashboardAttentionBtn').addEventListener('click',()=>{ dashboardMode=false; activeDepartmenton='all'; activeProduct=null; document.getElementById('boardTitle').textContent='All Departments'; renderAll(); });
@@ -5080,7 +5082,7 @@ function renderSummary(){
   let currentDetailId = null;
 
   function canAdvance(task){
-    if (!task) return false;
+    if (isReadOnlyPendingUser() || !task) return false;
     // Admin can move tasks through any workflow state.
     if (isAdmin()) return true;
     // A Member/PIC can start work and submit for review, but only Admin can
@@ -5089,7 +5091,7 @@ function renderSummary(){
   }
 
   function canSetStatus(task, targetStatus){
-    if (!task || !targetStatus) return false;
+    if (isReadOnlyPendingUser() || !task || !targetStatus) return false;
     if (isAdmin()) return true;
     if (currentRole !== task.assignee) return false;
     const allowed = {
@@ -5153,7 +5155,7 @@ function renderSummary(){
         <div class="chat-bubble">
           <div class="chat-meta"><strong>${escapeHtml(person.name)}</strong><span class="chat-time">${relativeTime(m.at)}</span></div>
           ${replyPreview}<div class="chat-text">${mentionHtml(m.text)}</div>
-          ${!isReply ? `<button type="button" class="reply-btn" data-reply-id="${m.id}">Reply</button>` : ''}
+          ${!isReply && !isReadOnlyPendingUser() ? `<button type="button" class="reply-btn" data-reply-id="${m.id}">Reply</button>` : ''}
         </div>
       </div>`;
     };
@@ -5171,6 +5173,7 @@ function renderSummary(){
   }
 
   function startReply(messageId){
+    if (isReadOnlyPendingUser()) return;
     const task = tasks.find(t=>t.id===currentDetailId);
     if(!task) return;
     const target = messages.find(m=>m.id===messageId && m.taskId===task.id);
@@ -5259,8 +5262,8 @@ function renderSummary(){
     const box=document.getElementById('contributorsList'), btn=document.getElementById('helpTaskBtn');
     if(!box||!btn)return;
     const ids=Array.isArray(task.contributors)?task.contributors:[];
-    box.innerHTML = ids.length ? ids.map(id=>{const m=memberOf(id);return `<span class="contributor-chip">${avatarMarkup(m, 'mini')}${escapeHtml(m.name)}${(isAdmin()||currentRole===task.assignee||id===currentRole)?`<button type="button" data-remove-contributor="${id}" title="Remove contributor">×</button>`:''}</span>`}).join('') : '<span class="dashboard-empty">No contributors yet.</span>';
-    btn.style.display = (currentRole===task.assignee || ids.includes(currentRole)) ? 'none' : 'inline-block';
+    box.innerHTML = ids.length ? ids.map(id=>{const m=memberOf(id);return `<span class="contributor-chip">${avatarMarkup(m, 'mini')}${escapeHtml(m.name)}${(!isReadOnlyPendingUser()&&(isAdmin()||currentRole===task.assignee||id===currentRole))?`<button type="button" data-remove-contributor="${id}" title="Remove contributor">×</button>`:''}</span>`}).join('') : '<span class="dashboard-empty">No contributors yet.</span>';
+    btn.style.display = isReadOnlyPendingUser() || currentRole===task.assignee || ids.includes(currentRole) ? 'none' : 'inline-block';
     box.querySelectorAll('[data-remove-contributor]').forEach(b=>b.addEventListener('click', async ()=>{
       const updatedTask = {
         ...task,
@@ -5338,9 +5341,18 @@ function renderSummary(){
     const editBtn = document.getElementById('editTaskBtn');
     const isTaskPIC = currentRole === task.assignee;
     const isContributor = isTaskContributorMember(task);
-    deleteBtn.style.display = isAdmin() ? 'inline-block' : 'none';
+    const readOnlyPending = isReadOnlyPendingUser();
+    deleteBtn.style.display = isAdmin() && !readOnlyPending ? 'inline-block' : 'none';
     editBtn.style.display = canEditTask(task) ? 'inline-block' : 'none';
-    managerNote.innerHTML = isTaskPIC && !isAdmin()
+    const calendarBtn = document.getElementById('calendarBtn');
+    if (calendarBtn) calendarBtn.style.display = readOnlyPending ? 'none' : 'inline-block';
+    const chatCompose = document.querySelector('.chat-compose');
+    if (chatCompose) chatCompose.style.display = readOnlyPending ? 'none' : '';
+    const mentionHint = document.querySelector('.discussion-head .mention-hint');
+    if (mentionHint) mentionHint.textContent = readOnlyPending ? 'Read-only while waiting for department assignment' : 'Use @name to mention someone';
+    managerNote.innerHTML = readOnlyPending
+      ? `<div class="task-manager-note"><strong>View-only access.</strong> You can view tasks across departments. An administrator must assign your department before workspace actions become available.</div>`
+      : isTaskPIC && !isAdmin()
       ? `<div class="task-manager-note"><strong>You are the PIC for this task.</strong> You can update the task content, add links/images, change its status, and participate in the discussion. Department, product, priority, due date, and reassignment are controlled by Admin.</div>`
       : isContributor && !isAdmin()
         ? `<div class="task-manager-note"><strong>You are a contributor on this task.</strong> You can update the task content, links, images, attachments, and participate in the discussion. Department, product, priority, due date, reassignment, and status changes remain controlled by the PIC/Admin.</div>`
@@ -5369,7 +5381,12 @@ function renderSummary(){
     const nextStatus = { todo:'progress', progress:'review', review:'done', done:'todo' }[task.status];
     const canDoNext = canSetStatus(task, nextStatus);
 
-    if (canDoNext){
+    if (readOnlyPending) {
+      actionBtn.style.display = 'none';
+      actionBtn.disabled = true;
+      requestBtn.style.display = 'none';
+      noteBox.innerHTML = `<div class="permission-note">View-only access until an administrator assigns your department.</div>`;
+    } else if (canDoNext){
       actionBtn.style.display = 'inline-block';
       actionBtn.disabled = false;
       actionBtn.textContent = LABEL[task.status];
@@ -5398,6 +5415,7 @@ function renderSummary(){
   }
 
   document.getElementById('helpTaskBtn').addEventListener('click', async ()=>{
+    if (isReadOnlyPendingUser()) return;
     const task = tasks.find(t => t.id === currentDetailId);
     if (!task || currentRole === 'admin' || currentRole === task.assignee) return;
 
@@ -5674,6 +5692,7 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
   }
 
   document.getElementById('sendChatBtn').addEventListener('click', async () => {
+    if (isReadOnlyPendingUser()) return;
     const task = tasks.find(t => t.id === currentDetailId);
     const input = document.getElementById('chatInput');
     const text = input?.value.trim();
@@ -7498,6 +7517,13 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   document.getElementById('departmentPendingScreen')?.classList.remove('visible');
   document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   document.querySelector('.app')?.classList.remove('app-hidden');
+  const readOnlyPending = isReadOnlyPendingUser();
+  const notifyButton = document.getElementById('notifyBtn');
+  const exportButton = document.getElementById('exportBtn');
+  const importButton = document.getElementById('importBtn');
+  if (notifyButton) notifyButton.style.display = readOnlyPending ? 'none' : '';
+  if (exportButton) exportButton.style.display = readOnlyPending ? 'none' : '';
+  if (importButton) importButton.style.display = readOnlyPending ? 'none' : '';
 }
 
 function finishAuthBoot(){
@@ -7506,6 +7532,12 @@ function finishAuthBoot(){
 
 function isDepartmentAssignmentPending(profile){
   return Boolean(profile && profile.accessLevel !== 'all' && profile.departmentStatus === 'pending');
+}
+
+// Pending accounts may browse task data but must not perform workspace actions.
+// All existing task permissions remain unchanged for assigned/legacy users.
+function isReadOnlyPendingUser(){
+  return isDepartmentAssignmentPending(currentUserProfile);
 }
 
 function showDepartmentPendingScreen(profile, user){
@@ -7530,16 +7562,30 @@ function watchCurrentUserProfile(user){
     user.uid,
     async freshProfile => {
       if (!freshProfile) return;
+      const wasPending = isDepartmentAssignmentPending(currentUserProfile);
       currentUserProfile = { ...(currentUserProfile || {}), ...freshProfile };
-      if (isDepartmentAssignmentPending(freshProfile)) {
-        showDepartmentPendingScreen(freshProfile, user);
-        return;
-      }
       if (workspaceActivatedUid !== user.uid) {
         try {
           await routeAuthenticatedUser(freshProfile, user, { skipWatch: true });
         } catch (error) {
           console.error('❌ Gagal membuka workspace setelah update profile:', error);
+        }
+        return;
+      }
+
+      // Keep identity and UI in sync when an admin assigns the department.
+      window.syncLegacyWorkspaceIdentity(
+        makeFirebaseMemberId(freshProfile, user),
+        freshProfile.accessLevel || 'standard',
+        { ...freshProfile, email: freshProfile.email || user.email || '', authUid: user.uid }
+      );
+      enterWorkspace();
+
+      if (wasPending && !isDepartmentAssignmentPending(freshProfile)) {
+        try {
+          await startWorkspaceAuxiliaryRealtime(freshProfile, user);
+        } catch (error) {
+          console.error('❌ Gagal mengaktifkan activity/notifications setelah assignment:', error);
         }
       }
     },
@@ -7579,26 +7625,38 @@ async function routeAuthenticatedUser(profile, user, options = {}){
     { ...resolvedProfile, email: resolvedProfile.email || user.email || '', authUid: user.uid }
   );
 
-  // Keeps the member visible to All Access administrators, but does not start
-  // the shared workspace listeners while the new account awaits assignment.
+  // Keep the member visible to All Access administrators. Pending accounts
+  // also enter the workspace, with read-only actions and limited listeners.
   await startMembersRealtime(resolvedProfile, user);
-
-  if (isDepartmentAssignmentPending(resolvedProfile)) {
-    showDepartmentPendingScreen(resolvedProfile, user);
-    if (!options.skipWatch) watchCurrentUserProfile(user);
-    finishAuthBoot();
-    return;
-  }
 
   await activateWorkspace(resolvedProfile, user);
   if (!options.skipWatch) watchCurrentUserProfile(user);
   finishAuthBoot();
 }
 
+async function startWorkspaceAuxiliaryRealtime(profile, user){
+  if (!user?.uid || !profile) return;
+
+  if (isDepartmentAssignmentPending(profile)) {
+    if (typeof unsubscribeActivitiesRealtime === 'function') unsubscribeActivitiesRealtime();
+    unsubscribeActivitiesRealtime = null;
+    activitiesRealtimeUserUid = null;
+    activitiesRealtimeReadyPromise = Promise.resolve();
+    activities = [];
+    stopNotificationsRealtime();
+    return;
+  }
+
+  await startActivitiesRealtime(profile, user);
+  await startNotificationsRealtime(profile, user);
+  await checkDeadlineNotifications();
+}
+
 async function activateWorkspace(profile, user){
   if (!user?.uid || !profile) return;
   if (workspaceActivatedUid === user.uid) {
     currentUserProfile = profile;
+    await startWorkspaceAuxiliaryRealtime(profile, user);
     enterWorkspace();
     return;
   }
@@ -7627,9 +7685,7 @@ async function activateWorkspace(profile, user){
     await startDepartmentsRealtime(profile, user);
     await startProductsRealtime(profile, user);
     await startTasksRealtime(profile, user);
-    await startActivitiesRealtime(profile, user);
-    await startNotificationsRealtime(profile, user);
-    await checkDeadlineNotifications();
+    await startWorkspaceAuxiliaryRealtime(profile, user);
     currentUserUid = user.uid;
     workspaceActivatedUid = user.uid;
     enterWorkspace();
