@@ -4210,13 +4210,27 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
   }
 
   function logActivity(taskId, action, detail){
+    // Use Firebase Auth as the source of truth. currentUserProfile can be replaced
+    // by updateUserProfile() results that do not carry the transient authUid field.
+    const actorUid = auth.currentUser?.uid || currentUserUid || currentUserProfile?.authUid || null;
+    const actorId = String(currentUserProfile?.memberId || currentRole || '').trim();
+    if (!actorUid || !actorId) {
+      console.error('❌ Activity tidak dikirim: identitas aktor belum lengkap.', {
+        hasAuthenticatedUid: Boolean(actorUid),
+        hasMemberId: Boolean(actorId)
+      });
+      return;
+    }
+
+    const localActivityId = `local-activity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const activity = {
+      id: localActivityId,
       taskId: taskId == null ? null : String(taskId),
       entityType: 'task',
       entityId: taskId == null ? null : String(taskId),
-      actorId: currentRole,
+      actorId,
       actorName: actorName(),
-      actorUid: currentUserProfile?.authUid || null,
+      actorUid,
       action,
       detail,
       at: new Date().toISOString(),
@@ -4226,8 +4240,28 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     activities = [activity, ...activities].slice(0, 200);
     renderRecentActivity();
 
-    addActivity(activity).catch(error => {
-      console.error('❌ Activity gagal disimpan ke Firestore:', error);
+    addActivity(activity).then(savedActivity => {
+      // The realtime listener may have delivered the saved document already.
+      // Replace the optimistic item when it still exists, without adding duplicates.
+      const localIndex = activities.findIndex(item => String(item.id) === localActivityId);
+      if (localIndex >= 0) {
+        activities[localIndex] = savedActivity;
+      } else if (!activities.some(item => String(item.id) === String(savedActivity.id))) {
+        activities = [savedActivity, ...activities].slice(0, 200);
+      }
+      renderRecentActivity();
+    }).catch(error => {
+      // Do not leave a fake activity in the UI when Firestore rejected the write.
+      activities = activities.filter(item => String(item.id) !== localActivityId);
+      renderRecentActivity();
+      console.error('❌ Activity gagal disimpan ke Firestore:', {
+        code: error?.code || 'unknown',
+        message: error?.message || String(error),
+        actorId,
+        actorUidMatchesSession: actorUid === auth.currentUser?.uid,
+        profileMemberId: currentUserProfile?.memberId || null,
+        currentRole
+      }, error);
     });
   }
   function isOverdue(task){
