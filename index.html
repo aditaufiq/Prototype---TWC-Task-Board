@@ -569,7 +569,7 @@
   .notification-item.unread{background:#F1F7F6;}
   .notification-item.notification-high-priority{border-left:3px solid var(--high);padding-left:.62rem;}
   .notification-title{font-size:.78rem;font-weight:600;color:var(--ink);line-height:1.35;}
-  .notification-body{font-size:.73rem;color:var(--ink-soft);margin-top:.18rem;line-height:1.45;}
+  .notification-body{font-size:.73rem;color:var(--ink-soft);margin-top:.18rem;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere;}
   .notification-time{font-size:.66rem;color:var(--ink-soft);margin-top:.2rem;display:block;}
   .notification-empty{padding:1rem .5rem;text-align:center;font-size:.78rem;color:var(--ink-soft);}
 
@@ -596,7 +596,7 @@
   .completion-confetti span:nth-child(10){--confetti-color:#7C3AED;--x:114px;--r:18deg;animation-delay:.02s}
   @keyframes confettiBurst{0%{opacity:0;transform:translate3d(-50%,0,0) rotate(0deg)}12%{opacity:1}100%{opacity:1;transform:translate3d(calc(-50% + var(--x)),28px,0) rotate(var(--r));}}
   .notification-toast-title{font-size:.8rem;font-weight:700;color:var(--ink);line-height:1.35;}
-  .notification-toast-body{font-size:.72rem;color:var(--ink-soft);line-height:1.4;margin-top:.18rem;}
+  .notification-toast-body{font-size:.72rem;color:var(--ink-soft);line-height:1.4;margin-top:.18rem;white-space:pre-line;overflow-wrap:anywhere;}
   .notification-toast-priority{display:inline-flex;align-items:center;margin-top:.38rem;font-size:.62rem;font-weight:700;letter-spacing:.03em;color:var(--high);background:#FDECEC;border-radius:999px;padding:.14rem .4rem;}
   .notification-toast-close{border:none;background:transparent;color:var(--ink-soft);font-size:.9rem;cursor:pointer;padding:.05rem;line-height:1;}
   @keyframes toastIn{from{opacity:0;transform:translateY(-10px) translateX(12px);}to{opacity:1;transform:translateY(0) translateX(0);}}
@@ -677,6 +677,9 @@
   .status-row strong{font-size:.68rem;font-weight:600;}
   .status-row span{display:block;font-size:.62rem;color:var(--ink-soft);margin-top:.08rem;}
   .status-row em{font-size:.62rem;color:var(--ink-soft);font-style:normal;white-space:nowrap;}
+  .status-row-note{margin-top:.35rem;padding:.45rem .55rem;border-left:2px solid var(--accent);background:var(--surface-soft);border-radius:0 6px 6px 0;}
+  .status-row-note strong{display:block;font-size:.62rem;color:var(--ink-soft);font-weight:700;}
+  .status-row-note p{margin:.15rem 0 0;font-size:.68rem;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere;color:var(--ink);}
   .member-row select{border:1px solid var(--line);border-radius:6px;padding:.4rem .55rem;font-family:inherit;font-size:.78rem;background:var(--panel);color:var(--ink);}
   .role-pill{font-size:.62rem;font-weight:600;padding:.16rem .38rem;border-radius:999px;background:#EEF1F4;color:var(--ink-soft);}
   .role-pill.admin{background:#E9F5E1;color:#3D7A28;}
@@ -705,7 +708,7 @@
 .notification-toast-wrap{top:1rem;right:1rem;z-index:999;gap:.55rem}.notification-toast{border-left-width:4px;backdrop-filter:blur(10px)}.notification-toast.high-priority{box-shadow:0 18px 46px rgba(176,51,51,.17)}
 .notification-high-priority{border-left:3px solid var(--high)!important;background:#FFFAFA!important}.notification-title{font-weight:650}.notification-item.unread .notification-title{font-weight:700}
 .needs-attention-panel{border-color:#E8ECEE}.needs-attention-panel .dashboard-panel-head{margin-bottom:.2rem}.needs-attention-count{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 .45rem;border-radius:999px;background:var(--surface-soft);color:var(--ink);font-size:.65rem;font-weight:700}.needs-attention-list{display:flex;flex-direction:column;gap:.35rem}.attention-item{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:.65rem;width:100%;border:1px solid transparent;background:var(--surface-soft);border-radius:8px;padding:.55rem .6rem;text-align:left;font-family:inherit}.attention-click{cursor:pointer}.attention-click:hover{border-color:var(--line);background:var(--bg)}.attention-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;background:#EDF8F7;color:var(--accent)}.attention-icon.danger{background:#FDECEC;color:var(--high)}.attention-icon.warning{background:#FFF6DF;color:#996500}.attention-icon.review{background:#EDF2FA;color:#3B5BA5}.attention-item strong{display:block;font-size:.71rem;color:var(--ink);line-height:1.35}.attention-item small{display:block;margin-top:.12rem;font-size:.63rem;color:var(--ink-soft)}.attention-arrow{font-size:1rem;color:var(--ink-soft)}.attention-clear{display:flex;align-items:center;gap:.65rem;padding:.65rem .2rem}.attention-clear-icon{width:30px;height:30px;border-radius:50%;background:#EFF5F1;color:#2B7A4B;display:flex;align-items:center;justify-content:center;font-weight:800}.attention-clear strong{display:block;font-size:.72rem}.attention-clear span{display:block;margin-top:.08rem;font-size:.64rem;color:var(--ink-soft)}
-.confirm-overlay{z-index:1200}.confirm-modal{max-width:420px}.confirm-icon{width:38px;height:38px;border-radius:10px;background:#FDECEC;color:var(--high);display:flex;align-items:center;justify-content:center;font-weight:800;margin-bottom:.75rem}.confirm-modal h3{margin-bottom:.35rem}.confirm-modal p{margin:0;color:var(--ink-soft);font-size:.75rem;line-height:1.55}.confirm-danger{background:#B83232!important;border-color:#B83232!important}.confirm-danger:hover{background:#A72828!important}
+.confirm-overlay{z-index:1200}.confirm-modal{max-width:420px}.confirm-modal.confirm-modal-with-notes{max-width:520px}.confirm-icon{width:38px;height:38px;border-radius:10px;background:#FDECEC;color:var(--high);display:flex;align-items:center;justify-content:center;font-weight:800;margin-bottom:.75rem}.confirm-modal h3{margin-bottom:.35rem}.confirm-modal p{margin:0;color:var(--ink-soft);font-size:.75rem;line-height:1.55}.confirm-notes-field{margin-top:.9rem}.confirm-notes-field textarea{min-height:96px;line-height:1.5}.confirm-notes-field .description-help{margin-top:.35rem}.confirm-danger{background:#B83232!important;border-color:#B83232!important}.confirm-danger:hover{background:#A72828!important}
 .member-manager-head{display:grid;grid-template-columns:1.15fr 1.1fr .62fr 1fr .58fr 28px;gap:.55rem;padding:0 .8rem .45rem;color:var(--ink-soft);font-size:.61rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.member-manager-row{display:grid;grid-template-columns:1.15fr 1.1fr .62fr 1fr .58fr 28px;align-items:center;gap:.55rem}.member-manager-row input[type="email"],.member-manager-row select{width:100%;min-width:0;padding:.48rem .55rem;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font-family:inherit;font-size:.74rem}.member-person{display:flex;align-items:center;gap:.45rem;min-width:0}.member-person input[type="text"]{flex:1;min-width:0}.active-toggle{display:flex;align-items:center;gap:.35rem;font-size:.67rem;color:var(--ink-soft);white-space:nowrap}.active-toggle input{accent-color:var(--accent)}
 @media (max-width:900px){.member-manager-head{display:none}.member-manager-row{grid-template-columns:1fr}.member-person{width:100%}.member-manager-row .remove-member{justify-self:end}.detail-heading-row{flex-direction:column}.detail-status-stack{align-items:flex-start}.task-result-meta{grid-column:1/-1}}
 
@@ -2080,6 +2083,145 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 }
 </style>
 
+<style id="request-changes-notes-apple-style">
+/* Request Changes notes — Apple-style glass surface aligned with Profile Edit */
+.confirm-overlay{
+  padding:1.2rem;
+  background:rgba(27,39,37,.2);
+  backdrop-filter:blur(14px) saturate(118%);
+  -webkit-backdrop-filter:blur(14px) saturate(118%);
+}
+.confirm-modal{
+  width:min(420px,94vw);
+  max-width:420px;
+  padding:1.35rem;
+  border:1px solid rgba(255,255,255,.9);
+  border-radius:22px;
+  background:rgba(255,255,255,.9);
+  box-shadow:0 24px 70px rgba(31,49,46,.16),inset 0 1px 0 rgba(255,255,255,.94);
+  backdrop-filter:blur(26px) saturate(125%);
+  -webkit-backdrop-filter:blur(26px) saturate(125%);
+}
+.confirm-modal.confirm-modal-with-notes{
+  width:min(540px,94vw);
+  max-width:540px;
+}
+.confirm-modal h3{
+  margin:0 0 .42rem;
+  color:#183b38;
+  font-size:1.18rem;
+  line-height:1.28;
+  letter-spacing:-.035em;
+  font-weight:700;
+}
+.confirm-modal > p{
+  margin:0;
+  color:#71807b;
+  font-size:.76rem;
+  line-height:1.6;
+}
+.confirm-modal .confirm-icon{
+  width:42px;
+  height:42px;
+  margin-bottom:.85rem;
+  border-radius:14px;
+  background:linear-gradient(145deg,#e5f2ee,#f2f8f6);
+  border:1px solid rgba(15,118,110,.08);
+  color:#0f766e;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 5px 15px rgba(31,49,46,.06);
+}
+.confirm-modal:not(.confirm-modal-with-notes) .confirm-icon{
+  background:#FDECEC;
+  border-color:transparent;
+  color:var(--high);
+  box-shadow:none;
+}
+.confirm-notes-field{
+  margin:1rem 0 0;
+  padding:.9rem;
+  border:1px solid rgba(15,118,110,.09);
+  border-radius:16px;
+  background:linear-gradient(145deg,rgba(239,247,244,.78),rgba(250,252,251,.94));
+}
+.confirm-notes-field label{
+  display:block;
+  margin:0 0 .48rem;
+  color:#274741;
+  font-size:.73rem;
+  font-weight:700;
+  letter-spacing:-.01em;
+}
+.confirm-notes-field textarea{
+  display:block;
+  width:100%;
+  min-height:116px;
+  padding:.78rem .85rem;
+  border:1px solid #dce7e3;
+  border-radius:12px;
+  outline:none;
+  resize:vertical;
+  background:rgba(255,255,255,.88);
+  color:#243c37;
+  font-family:inherit;
+  font-size:.78rem;
+  line-height:1.58;
+  box-shadow:inset 0 1px 2px rgba(31,49,46,.025);
+  transition:border-color .18s ease,box-shadow .18s ease,background .18s ease;
+}
+.confirm-notes-field textarea::placeholder{color:#98a6a1;opacity:1}
+.confirm-notes-field textarea:focus{
+  border-color:rgba(15,118,110,.52);
+  background:#fff;
+  box-shadow:0 0 0 4px rgba(15,118,110,.09),inset 0 1px 2px rgba(31,49,46,.02);
+}
+.confirm-notes-field .description-help{
+  display:flex;
+  align-items:flex-start;
+  gap:.38rem;
+  margin-top:.55rem;
+  color:#7b8984;
+  font-size:.64rem;
+  line-height:1.45;
+}
+.confirm-notes-field .description-help::before{
+  content:'i';
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 14px;
+  width:14px;
+  height:14px;
+  margin-top:1px;
+  border-radius:50%;
+  background:rgba(15,118,110,.1);
+  color:#39756d;
+  font-size:.56rem;
+  font-weight:700;
+}
+.confirm-modal .modal-actions{margin-top:1.15rem;gap:.55rem}
+.confirm-modal .modal-actions .btn-secondary,
+.confirm-modal .modal-actions .add-btn{
+  min-height:38px;
+  padding:.58rem .95rem;
+  border-radius:11px;
+  font-size:.74rem;
+  font-weight:650;
+}
+.confirm-modal .modal-actions .btn-secondary{
+  border-color:rgba(31,49,46,.1);
+  background:rgba(246,249,248,.9);
+  color:#5f706a;
+}
+.confirm-modal .modal-actions .btn-secondary:hover{background:#eef3f1;color:#284c45}
+.confirm-modal .modal-actions .add-btn:not(.confirm-danger){box-shadow:0 5px 13px rgba(15,118,110,.15)}
+@media(max-width:560px){
+  .confirm-overlay{padding:.8rem}
+  .confirm-modal,.confirm-modal.confirm-modal-with-notes{width:100%;max-width:100%;padding:1.05rem;border-radius:19px}
+  .confirm-notes-field{padding:.75rem}
+  .confirm-modal .modal-actions .btn-secondary,.confirm-modal .modal-actions .add-btn{flex:1}
+}
+</style>
+
 <style id="v2-13-auth-restore">
   body.auth-pending #welcomeScreen,
   body.auth-pending .app,
@@ -2154,6 +2296,48 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   #membersOverlay .modal { width: min(1100px, 96vw); max-width: 96vw; }
   @media (max-width: 900px) { .member-manager-row { gap: .6rem; } .member-department-field { width: 100%; } }
   @media (prefers-reduced-motion: reduce) { .department-pending-dot { box-shadow: none; } }
+</style>
+
+
+<style id="account-lifecycle-ui">
+  #accountRestrictedScreen {
+    position: fixed; inset: 0; z-index: 4800; display: none; place-items: center;
+    padding: 24px; background: radial-gradient(circle at 18% 16%, rgba(15,118,110,.08), transparent 34%), #FBFAF7; color: #183B38;
+  }
+  #accountRestrictedScreen.visible { display: grid; }
+  .account-restricted-card {
+    width: min(480px, 100%); padding: clamp(26px, 5vw, 42px); text-align: center;
+    border: 1px solid rgba(24,59,56,.09); border-radius: 26px; background: rgba(255,255,255,.86);
+    box-shadow: 0 24px 70px rgba(24,59,56,.10); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  }
+  .account-restricted-icon { width: 52px; height: 52px; margin: 0 auto 18px; display:grid; place-items:center; border-radius: 17px; background: #F5EDEA; color:#9B5145; font-size: 1.35rem; }
+  .account-restricted-eyebrow { font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; font-weight:800; color:#7B8884; }
+  .account-restricted-card h1 { margin:10px 0 8px; font-size:clamp(1.35rem,4vw,1.8rem); letter-spacing:-.045em; color:#103D37; }
+  .account-restricted-card p { margin:0; color:#78857F; font-size:.84rem; line-height:1.7; }
+  .account-restricted-email { display:inline-block; max-width:100%; margin-top:18px; padding:8px 12px; border-radius:999px; background:#F1F4F0; color:#355A53; font-size:.72rem; overflow-wrap:anywhere; }
+  .account-restricted-signout { margin-top:24px; border:1px solid #DDE4E0; background:white; color:#355A53; border-radius:999px; padding:10px 17px; font:inherit; font-size:.76rem; font-weight:700; cursor:pointer; }
+  .account-restricted-signout:hover { background:#F4F7F5; }
+  .member-manager-head,.member-manager-row { grid-template-columns:minmax(145px,1.2fr) minmax(140px,1fr) minmax(86px,.62fr) minmax(135px,1fr) minmax(78px,.58fr) minmax(190px,1.25fr); }
+  .member-account-cell { display:flex; min-width:0; flex-direction:column; align-items:flex-start; gap:7px; }
+  .member-account-actions { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+  .account-status-pill { display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:4px 8px; border:1px solid rgba(24,59,56,.10); border-radius:999px; background:#F4F7F5; color:#4B625D; font-size:.61rem; line-height:1.2; font-weight:750; white-space:normal; }
+  .account-status-pill[data-status="active"] { background:#EAF6EE; border-color:#D0E8D6; color:#286744; }
+  .account-status-pill[data-status="inactive"] { background:#FFF5E7; border-color:#F1DFBF; color:#8B6227; }
+  .account-status-pill[data-status="removed"] { background:#F9EDEC; border-color:#F0D4D1; color:#984B43; }
+  .account-action-btn { border:1px solid #DDE5E0; background:rgba(255,255,255,.9); color:#355A53; border-radius:999px; padding:6px 9px; font:inherit; font-size:.62rem; font-weight:700; cursor:pointer; transition:background .16s ease, transform .16s ease; }
+  .account-action-btn:hover { background:#EEF5F1; transform:translateY(-1px); }
+  .account-action-btn[data-action="remove"],.account-action-btn[data-action="retry-cleanup"] { color:#9B5145; border-color:#F0D4D1; }
+  .account-action-btn[data-action="remove"]:hover,.account-action-btn[data-action="retry-cleanup"]:hover { background:#FFF1EF; }
+  .account-action-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+  .account-action-note { color:#7B8884; font-size:.59rem; line-height:1.35; }
+  .confirm-typed-field { display:none; margin-top:14px; }
+  .confirm-typed-field label { display:block; margin-bottom:6px; font-size:.73rem; color:var(--ink-soft); font-weight:650; }
+  .confirm-typed-field input { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:12px; background:var(--panel); color:var(--ink); font:inherit; font-size:.86rem; outline:none; }
+  .confirm-typed-field input:focus { border-color:rgba(15,118,110,.55); box-shadow:0 0 0 4px rgba(15,118,110,.09); }
+  .confirm-typed-help { margin-top:6px; color:var(--ink-soft); font-size:.64rem; line-height:1.45; }
+  #confirmOkBtn:disabled { opacity:.42; cursor:not-allowed; }
+  @media (max-width:900px) { .member-manager-head { display:none; } .member-manager-row { grid-template-columns:1fr; } .member-account-cell { width:100%; } .member-account-actions { gap:7px; } }
+  @media (prefers-reduced-motion:reduce) { .account-action-btn { transition:none; } }
 </style>
 
 </head>
@@ -2317,6 +2501,17 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <div class="department-pending-status"><span class="department-pending-dot"></span><span>Waiting for department assignment</span></div>
     <p class="department-pending-footnote">This screen will update automatically after an administrator assigns your department.</p>
     <button class="department-pending-signout" id="departmentPendingSignOutBtn" type="button">Sign out</button>
+  </section>
+</div>
+
+<div id="accountRestrictedScreen" aria-live="polite" aria-hidden="true">
+  <section class="account-restricted-card">
+    <div class="account-restricted-icon" aria-hidden="true">⌁</div>
+    <div class="account-restricted-eyebrow">Account access</div>
+    <h1 id="accountRestrictedTitle">Workspace access unavailable</h1>
+    <p id="accountRestrictedMessage">This account is not currently approved to access the workspace.</p>
+    <div class="account-restricted-email" id="accountRestrictedEmail"></div>
+    <button class="account-restricted-signout" id="accountRestrictedSignOutBtn" type="button">Sign out</button>
   </section>
 </div>
 
@@ -2611,6 +2806,16 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <div class="confirm-icon" id="confirmIcon">!</div>
     <h3 id="confirmTitle">Are you sure?</h3>
     <p id="confirmMessage"></p>
+    <div class="confirm-typed-field" id="confirmTypedField" style="display:none;">
+      <label for="confirmTypedInput" id="confirmTypedLabel">Type the account email to confirm</label>
+      <input id="confirmTypedInput" type="text" autocomplete="off" spellcheck="false" placeholder="Enter the exact email">
+      <div class="confirm-typed-help" id="confirmTypedHelp">This is a permanent action.</div>
+    </div>
+    <div class="field confirm-notes-field" id="confirmNotesField" style="display:none;">
+      <label for="confirmNotes" id="confirmNotesLabel">Notes for PIC (optional)</label>
+      <textarea id="confirmNotes" rows="4" maxlength="1200" placeholder="Describe what needs to be revised so the PIC knows what to do..."></textarea>
+      <div class="description-help">Saved in the task status timeline. The PIC notification stays concise.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" id="confirmCancelBtn">Cancel</button>
       <button class="add-btn confirm-danger" id="confirmOkBtn">Confirm</button>
@@ -2759,6 +2964,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   seedDefaultDepartmentsIfMissing,
   saveMember,
   deleteMember,
+  setManagedAccountStatus,
+  permanentlyRemoveAccount,
+  allowAccountReonboarding,
+  getAccountOnboardingState,
+  consumeAccountReonboardingApproval,
+  getCurrentAuthTimeSeconds,
   subscribeToProducts,
   saveProductGroup,
   saveProductGroupAndTasks,
@@ -4118,6 +4329,12 @@ window.syncLegacyWorkspaceIdentity = function(memberId, accessLevel, profile){
     return {
       recipientUid: String(recipientUid),
       recipientMemberId,
+      // Firestore Rules require a task-event notification to identify the
+      // authenticated actor with the same memberId stored on their user profile.
+      // Omitting these fields caused request-changes transactions to be denied.
+      actorUid: String(auth.currentUser?.uid || currentUserUid || ''),
+      actorMemberId: String(currentUserProfile?.memberId || currentRole || '').trim(),
+      actorName: actorName(),
       type,
       priority: overrides.priority || 'normal',
       title: overrides.title || titleMap[event] || 'Task update',
@@ -4984,11 +5201,42 @@ function formatDate(str){
       const pct = arr.length ? Math.round(dDone / arr.length * 100) : 0;
       return `<div class="dash-dept-row"><div class="dash-dept-name"><span class="dash-dept-dot" style="background:${d.color}"></span><div><strong>${escapeHtml(d.name)}</strong><small>${arr.length} tasks · ${dDone} done · ${dActive} active · ${dReview} review</small></div></div><div class="dash-dept-track"><span style="width:${pct}%;background:${d.color}"></span></div><b>${pct}%</b></div>`;
     }).join('');
-    const workloadMax = Math.max(1,...members.map(m => tasks.filter(t => t.assignee === m.id && t.status !== 'done').length));
-    const workloadHtml = members.map(m => {
-      const count = tasks.filter(t => t.assignee === m.id && t.status !== 'done').length;
-      return `<div class="dash-work-row"><div class="dash-work-person">${avatarMarkup(m, 'mini-avatar')}<strong>${escapeHtml(m.name)}</strong></div><div class="dash-work-track"><span style="width:${Math.round(count/workloadMax*100)}%;background:${escapeHtml(m.color || '#999')}"></span></div><b>${count}</b></div>`;
-    }).join('');
+    const workloadMembers = members.filter(m => {
+  const accountStatus = String(m.accountStatus || '')
+    .trim()
+    .toLowerCase();
+
+  return accountStatus !== 'removed'
+    && accountStatus !== 'inactive'
+    && m.active !== false
+    && m.archived !== true;
+});
+
+const workloadMax = Math.max(
+  1,
+  ...workloadMembers.map(m =>
+    tasks.filter(
+      t => t.assignee === m.id && t.status !== 'done'
+    ).length
+  )
+);
+
+const workloadHtml = workloadMembers.map(m => {
+  const count = tasks.filter(
+    t => t.assignee === m.id && t.status !== 'done'
+  ).length;
+
+  return `<div class="dash-work-row">
+    <div class="dash-work-person">
+      ${avatarMarkup(m, 'mini-avatar')}
+      <strong>${escapeHtml(m.name)}</strong>
+    </div>
+    <div class="dash-work-track">
+      <span style="width:${Math.round(count/workloadMax*100)}%;background:${escapeHtml(m.color || '#999')}"></span>
+    </div>
+    <b>${count}</b>
+  </div>`;
+}).join('');
     const summaryCopy = attentionTotal === 0 ? 'Everything looks clear. Here is the current workspace snapshot.' : `${attentionTotal} item${attentionTotal===1?'':'s'} currently need attention.`;
     const attentionSummary = `<div class="dash-attention-item danger"><span class="dash-attention-icon">!</span><div><strong>${overdue}</strong><small>Overdue</small></div></div><div class="dash-attention-item warning"><span class="dash-attention-icon">◷</span><div><strong>${dueToday}</strong><small>Due today</small></div></div><div class="dash-attention-item review"><span class="dash-attention-icon">↗</span><div><strong>${review}</strong><small>In review</small></div></div>`;
     document.getElementById('summaryWrap').style.display = 'none';
@@ -5336,7 +5584,12 @@ function renderSummary(){
   }
   function renderStatusTimeline(task){
     const box=document.getElementById('statusTimeline'); const arr=Array.isArray(task.statusHistory)?task.statusHistory:[];
-    box.innerHTML=arr.slice().reverse().map(h=>`<div class="status-row"><span class="dot"></span><div><strong>${STATUS_LABEL[h.status]||h.status}</strong><span>Updated by ${escapeHtml(memberOf(h.by).name)}</span></div><em>${relativeTime(h.at)}</em></div>`).join('') || '<div class="dashboard-empty">No status history.</div>';
+    box.innerHTML=arr.slice().reverse().map(h=>{
+      const note = h.action === 'changes_requested' && String(h.note || '').trim()
+        ? `<div class="status-row-note"><strong>Request notes</strong><p>${escapeHtml(String(h.note).trim())}</p></div>`
+        : '';
+      return `<div class="status-row"><span class="dot"></span><div><strong>${STATUS_LABEL[h.status]||h.status}</strong><span>Updated by ${escapeHtml(memberOf(h.by).name)}</span>${note}</div><em>${relativeTime(h.at)}</em></div>`;
+    }).join('') || '<div class="dashboard-empty">No status history.</div>';
   }
 
     function openDetail(id){
@@ -5520,14 +5773,18 @@ function renderSummary(){
 
   document.getElementById('requestChangesBtn').addEventListener('click', () => {
     const task = tasks.find(t => t.id === currentDetailId);
-    // Only Admin/reviewers may send a task back from In Review.
+    // Only All Access may send a task back from In Review.
     if (!task || task.status !== 'review' || !isAdmin()) return;
     openConfirm({
       title: 'Request changes?',
-      message: `“${task.title}” will move back to In Progress for another revision.`,
+      message: `“${task.title}” will move back to In Progress for another revision. Add a note so the PIC knows what needs to be changed.`,
       confirmText: 'Request changes',
       danger: false,
-      onConfirm: async () => {
+      showNotes: true,
+      notesLabel: 'Notes for PIC (optional)',
+      notesPlaceholder: 'Example: Please update the Canva layout, correct the headline, and use the latest product photo...',
+      onConfirm: async ({notes = ''} = {}) => {
+        const requestNote = String(notes || '').trim().slice(0, 1200);
         const oldStatus = task.status;
         const now = new Date().toISOString();
         const updatedTask = {
@@ -5536,17 +5793,21 @@ function renderSummary(){
           updatedAt: now,
           statusHistory: Array.isArray(task.statusHistory) ? [...task.statusHistory] : []
         };
-        updatedTask.statusHistory.push({ status: updatedTask.status, at: now, by: currentRole });
+        const historyEntry = { status: updatedTask.status, at: now, by: currentRole, action: 'changes_requested' };
+        if (requestNote) historyEntry.note = requestNote;
+        updatedTask.statusHistory.push(historyEntry);
 
         try {
           const taskNotificationRequests = [];
+          // Keep the PIC notification short. The full note is stored in statusHistory
+          // and displayed in the task timeline, rather than repeating it in notifications.
           const request = buildTaskEventNotificationRequest(updatedTask, 'changes_requested');
           if (request) taskNotificationRequests.push(request);
 
           await updateTask(updatedTask.id, updatedTask, taskNotificationRequests, taskExpectedVersion(task));
           Object.assign(task, updatedTask);
-          logActivity(task.id, 'changes', `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]} (changes requested)`);
-          
+          const activityDetail = `${STATUS_LABEL[oldStatus]} → ${STATUS_LABEL[task.status]} (changes requested)`;
+          logActivity(task.id, 'changes', activityDetail);
           closeDetail();
           renderAll();
         } catch(error) {
@@ -5576,21 +5837,63 @@ function renderSummary(){
   });
 
   let pendingConfirm = null;
+  let pendingTypedText = null;
   const confirmOverlay = document.getElementById('confirmOverlay');
   const confirmTitle = document.getElementById('confirmTitle');
   const confirmMessage = document.getElementById('confirmMessage');
+  const confirmNotesField = document.getElementById('confirmNotesField');
+  const confirmNotesInput = document.getElementById('confirmNotes');
+  const confirmTypedField = document.getElementById('confirmTypedField');
+  const confirmTypedInput = document.getElementById('confirmTypedInput');
+  const confirmTypedLabel = document.getElementById('confirmTypedLabel');
+  const confirmTypedHelp = document.getElementById('confirmTypedHelp');
   const confirmOkBtn = document.getElementById('confirmOkBtn');
   const confirmCancelBtn = document.getElementById('confirmCancelBtn');
-  function closeConfirm(){ pendingConfirm=null; confirmOverlay.classList.remove('open'); }
-  function openConfirm({title, message, confirmText='Confirm', danger=true, onConfirm}){
+  function syncTypedConfirmButton(){
+    if (!pendingTypedText) { confirmOkBtn.disabled = false; return; }
+    confirmOkBtn.disabled = String(confirmTypedInput.value || '').trim().toLowerCase() !== String(pendingTypedText).trim().toLowerCase();
+  }
+  function closeConfirm(){
+    pendingConfirm=null;
+    pendingTypedText=null;
+    confirmOverlay.classList.remove('open');
+    confirmNotesField.style.display='none';
+    confirmNotesInput.value='';
+    confirmTypedField.style.display='none';
+    confirmTypedInput.value='';
+    confirmOkBtn.disabled=false;
+    document.querySelector('.confirm-modal')?.classList.remove('confirm-modal-with-notes');
+  }
+  function openConfirm({title, message, confirmText='Confirm', danger=true, onConfirm, showNotes=false, notesLabel='Notes for PIC (optional)', notesPlaceholder='Describe what needs to be revised so the PIC knows what to do...', requireTypedText=null, typedLabel='Type the account email to confirm', typedHelp='This is a permanent action.'}){
     confirmTitle.textContent=title;
     confirmMessage.textContent=message;
     confirmOkBtn.textContent=confirmText;
     confirmOkBtn.classList.toggle('confirm-danger', danger);
+    confirmNotesField.style.display=showNotes?'block':'none';
+    confirmNotesInput.value='';
+    document.getElementById('confirmNotesLabel').textContent=notesLabel;
+    confirmNotesInput.placeholder=notesPlaceholder;
+    confirmTypedField.style.display=requireTypedText?'block':'none';
+    confirmTypedInput.value='';
+    confirmTypedLabel.textContent=typedLabel;
+    confirmTypedHelp.textContent=typedHelp;
+    pendingTypedText=requireTypedText ? String(requireTypedText) : null;
+    document.querySelector('.confirm-modal')?.classList.toggle('confirm-modal-with-notes', showNotes);
     pendingConfirm=onConfirm;
     confirmOverlay.classList.add('open');
+    syncTypedConfirmButton();
+    if(showNotes) setTimeout(() => confirmNotesInput.focus(), 0);
+    else if(requireTypedText) setTimeout(() => confirmTypedInput.focus(), 0);
   }
-  confirmOkBtn.addEventListener('click',()=>{ const action=pendingConfirm; closeConfirm(); if(action) action(); });
+  confirmTypedInput.addEventListener('input', syncTypedConfirmButton);
+  confirmOkBtn.addEventListener('click',()=>{
+    if (pendingTypedText && String(confirmTypedInput.value || '').trim().toLowerCase() !== String(pendingTypedText).trim().toLowerCase()) return;
+    const action=pendingConfirm;
+    const notes=confirmNotesField.style.display==='none'?'':String(confirmNotesInput.value||'').trim().slice(0,1200);
+    const typedText=String(confirmTypedInput.value || '').trim();
+    closeConfirm();
+    if(action) action({notes, typedText});
+  });
   confirmCancelBtn.addEventListener('click', closeConfirm);
   confirmOverlay.addEventListener('click',e=>{if(e.target===confirmOverlay)closeConfirm();});
 
@@ -7397,25 +7700,71 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         `<option value="${escapeHtml(department.id)}" ${selected === String(department.id) ? 'selected' : ''}>${escapeHtml(department.name)}</option>`
       ).join('');
     };
-    box.innerHTML = `<div class="member-manager-head"><span>Name</span><span>Email</span><span>Role</span><span>Department</span><span>Active</span><span></span></div>` + members.map((m, i) => `
+    const safeLabel = value => escapeHtml(String(value || ''));
+    const isRemoved = member => member.accountStatus === 'removed' || member.archived === true;
+    const isInactiveAccount = member => member.accountStatus === 'inactive';
+    const accountCell = (member, index) => {
+      const removed = isRemoved(member);
+      const inactive = isInactiveAccount(member);
+      const linked = Boolean(member.authUid);
+      const isSelf = Boolean(currentUserUid && member.authUid === currentUserUid);
+      if (removed) {
+        const statusLabel = member.cleanupPending === true ? 'Removed · cleanup pending' : 'Removed · history kept';
+        let actions = '';
+        if (member.cleanupPending === true) {
+          actions += `<button class="account-action-btn" data-account-action="retry-cleanup" data-account-member="${index}">Retry cleanup</button>`;
+        } else if (member.reOnboardingStatus !== 'approved' && member.reOnboardingStatus !== 'completed') {
+          actions += `<button class="account-action-btn" data-account-action="allow-reonboarding" data-account-member="${index}">Allow re-onboarding</button>`;
+        } else if (member.reOnboardingStatus === 'approved') {
+          actions += `<span class="account-action-note">Re-onboarding approved · waiting for sign-in</span>`;
+        } else {
+          actions += `<span class="account-action-note">Re-onboarding completed</span>`;
+        }
+        return `<div class="member-account-cell"><span class="account-status-pill" data-status="removed">${statusLabel}</span><div class="member-account-actions">${actions}</div></div>`;
+      }
+      if (linked && isSelf) {
+        return `<div class="member-account-cell"><span class="account-status-pill" data-status="${inactive ? 'inactive' : 'active'}">${inactive ? 'Inactive login' : 'Your account'}</span><span class="account-action-note">Self-protection enabled</span></div>`;
+      }
+      if (linked) {
+        const status = inactive ? 'inactive' : 'active';
+        const statusText = inactive ? 'Login inactive' : 'Login active';
+        const primaryAction = inactive
+          ? `<button class="account-action-btn" data-account-action="reactivate" data-account-member="${index}">Reactivate</button>`
+          : `<button class="account-action-btn" data-account-action="deactivate" data-account-member="${index}">Deactivate</button>`;
+        const cleanupNote = member.authCleanupPending === true
+          ? `<span class="account-action-note">Authentication cleanup needs retry</span>` : '';
+        const retryAction = member.authCleanupPending === true
+          ? `<button class="account-action-btn" data-account-action="retry-deactivate" data-account-member="${index}">Retry access block</button>` : '';
+        return `<div class="member-account-cell"><span class="account-status-pill" data-status="${status}">${statusText}</span><div class="member-account-actions">${primaryAction}${retryAction}<button class="account-action-btn" data-account-action="remove" data-account-member="${index}">Remove permanently</button></div>${cleanupNote}</div>`;
+      }
+      return `<div class="member-account-cell"><span class="account-status-pill" data-status="inactive">No linked login</span><div class="member-account-actions"><button class="account-action-btn" data-remove="${index}" title="Remove unlinked roster entry">Remove roster entry</button></div></div>`;
+    };
+
+    box.innerHTML = `<div class="member-manager-head"><span>Name</span><span>Email</span><span>Role</span><span>Department</span><span>Roster</span><span>Account access</span></div>` + members.map((m, i) => {
+      const removed = isRemoved(m);
+      const inactive = isInactiveAccount(m);
+      const disableArchivedFields = removed;
+      const memberEmail = m.email || '';
+      return `
       <div class="member-row member-manager-row" data-idx="${i}">
-        <div class="member-person"><input type="color" value="${m.color || '#0F766E'}" data-field="color"><input type="text" value="${escapeHtml(m.name)}" data-field="name"></div>
-        <input type="email" value="${escapeHtml(m.email || '')}" data-field="email" placeholder="name@company.com">
-        <select data-field="role" aria-label="Role for ${escapeHtml(m.name)}"><option value="member" ${(m.role||'member')==='member'?'selected':''}>Member</option><option value="admin" ${(m.role||'member')==='admin'?'selected':''}>Admin</option></select>
+        <div class="member-person"><input type="color" value="${m.color || '#0F766E'}" data-field="color" ${disableArchivedFields?'disabled':''}><input type="text" value="${safeLabel(m.name)}" data-field="name" ${disableArchivedFields?'disabled':''}></div>
+        <input type="email" value="${safeLabel(memberEmail)}" data-field="email" placeholder="name@company.com" ${disableArchivedFields?'disabled':''}>
+        <select data-field="role" aria-label="Role for ${safeLabel(m.name)}" ${disableArchivedFields?'disabled':''}><option value="member" ${(m.role||'member')==='member'?'selected':''}>Member</option><option value="admin" ${(m.role||'member')==='admin'?'selected':''}>Admin</option></select>
         <div class="member-department-field">
-          <select data-field="department" aria-label="Department for ${escapeHtml(m.name)}">${departmentOptionsFor(m)}</select>
+          <select data-field="department" aria-label="Department for ${safeLabel(m.name)}" ${disableArchivedFields||inactive?'disabled':''}>${departmentOptionsFor(m)}</select>
           <small class="member-department-status" data-tone="${m.departmentStatus === 'assigned' ? 'success' : ''}">${m.departmentStatus === 'pending' ? 'Waiting for assignment' : (m.department ? 'Assigned' : 'Not assigned')}</small>
         </div>
-        <label class="active-toggle"><input type="checkbox" data-field="active" ${(m.active!==false)?'checked':''}><span>${m.active!==false?'Active':'Inactive'}</span></label>
-        <button class="remove-member" data-remove="${i}" title="Remove member">✕</button>
-      </div>`).join('');
+        <label class="active-toggle"><input type="checkbox" data-field="active" ${(m.active!==false)?'checked':''} ${(disableArchivedFields||inactive)?'disabled':''}><span>${m.active!==false?'Active':'Inactive'}</span></label>
+        ${accountCell(m, i)}
+      </div>`;
+    }).join('');
 
     box.querySelectorAll('select[data-field="department"]').forEach(sel => sel.addEventListener('change', async e => {
       const idx = parseInt(e.target.closest('.member-row').dataset.idx, 10);
       const member = members[idx];
       const departmentId = String(e.target.value || '').trim();
       const status = e.target.closest('.member-department-field')?.querySelector('.member-department-status');
-      if (!member || !departmentId) return;
+      if (!member || !departmentId || isRemoved(member) || isInactiveAccount(member)) return;
       const previous = String(member.department || '');
       e.target.disabled = true;
       if (status) { status.textContent = 'Saving assignment…'; status.dataset.tone = ''; }
@@ -7424,99 +7773,149 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         member.department = departmentId;
         member.departmentStatus = 'assigned';
         if (status) { status.textContent = 'Department assigned'; status.dataset.tone = 'success'; }
-        renderRoleSelect();
-        renderBoard();
-        // Let the roster's own onSnapshot refresh the row and keep other admins in sync.
+        renderRoleSelect(); renderBoard();
       } catch (error) {
         console.error('❌ Gagal menetapkan department member:', error);
-        e.target.value = previous;
-        e.target.disabled = false;
+        e.target.value = previous; e.target.disabled = false;
         if (status) { status.textContent = 'Assignment failed — check Firebase Rules'; status.dataset.tone = 'error'; }
       }
     }));
     box.querySelectorAll('input[data-field="name"]').forEach(inp => inp.addEventListener('change', async e => {
-      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
-      const member = members[idx];
-      if (!member) return;
-      member.name = e.target.value.trim() || 'Unnamed Member';
-      renderRoleSelect();
-      try {
-        await saveMember(member);
-      } catch (error) {
-        console.error('❌ Gagal menyimpan nama member:', error);
-        alert('Nama member gagal disimpan.');
-      }
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx); const member = members[idx];
+      if (!member || isRemoved(member)) return;
+      member.name = e.target.value.trim() || 'Unnamed Member'; renderRoleSelect();
+      try { await saveMember(member); } catch (error) { console.error('❌ Gagal menyimpan nama member:', error); alert('Nama member gagal disimpan.'); }
     }));
-
     box.querySelectorAll('input[data-field="email"]').forEach(inp => inp.addEventListener('change', async e => {
-      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
-      const member = members[idx];
-      if (!member) return;
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx); const member = members[idx];
+      if (!member || isRemoved(member)) return;
       member.email = e.target.value.trim();
-      try {
-        await saveMember(member);
-      } catch (error) {
-        console.error('❌ Gagal menyimpan email member:', error);
-        alert('Email member gagal disimpan.');
-      }
+      try { await saveMember(member); } catch (error) { console.error('❌ Gagal menyimpan email member:', error); alert('Email member gagal disimpan.'); }
     }));
-
     box.querySelectorAll('input[data-field="color"]').forEach(inp => inp.addEventListener('change', async e => {
-      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
-      const member = members[idx];
-      if (!member) return;
-      member.color = e.target.value;
-      renderBoard();
-      try {
-        await saveMember(member);
-      } catch (error) {
-        console.error('❌ Gagal menyimpan warna member:', error);
-        alert('Warna member gagal disimpan.');
-      }
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx); const member = members[idx];
+      if (!member || isRemoved(member)) return;
+      member.color = e.target.value; renderBoard();
+      try { await saveMember(member); } catch (error) { console.error('❌ Gagal menyimpan warna member:', error); alert('Warna member gagal disimpan.'); }
     }));
-
     box.querySelectorAll('select[data-field="role"]').forEach(sel => sel.addEventListener('change', async e => {
-      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx); const member = members[idx];
+      if (!member || isRemoved(member)) return;
+      member.role = e.target.value; renderRoleSelect();
+      try { await saveMember(member); } catch (error) { console.error('❌ Gagal menyimpan role member:', error); alert('Role member gagal disimpan.'); }
+    }));
+    box.querySelectorAll('input[data-field="active"]').forEach(inp => inp.addEventListener('change', async e => {
+      const idx = parseInt(e.target.closest('.member-row').dataset.idx); const member = members[idx];
+      if (!member || isRemoved(member) || isInactiveAccount(member)) return;
+      member.active = e.target.checked; renderMemberRows(); renderRoleSelect();
+      try { await saveMember(member); } catch (error) { console.error('❌ Gagal mengubah status active member:', error); alert('Status member gagal disimpan.'); }
+    }));
+
+    box.querySelectorAll('[data-account-action]').forEach(button => button.addEventListener('click', async e => {
+      const action = e.currentTarget.dataset.accountAction;
+      const idx = Number(e.currentTarget.dataset.accountMember);
       const member = members[idx];
       if (!member) return;
-      member.role = e.target.value;
-      renderRoleSelect();
-      try {
-        await saveMember(member);
-      } catch (error) {
-        console.error('❌ Gagal menyimpan role member:', error);
-        alert('Role member gagal disimpan.');
+      const label = member.email || member.name || member.id;
+      if (action === 'retry-deactivate') {
+        openConfirm({
+          title: 'Retry access block?',
+          message: `Retry disabling the login and revoking refresh tokens for “${member.name}”. Firestore already blocks this account from the workspace.`,
+          confirmText: 'Retry access block', danger: true,
+          onConfirm: async () => {
+            try {
+              const result = await setManagedAccountStatus(member.id, 'inactive');
+              if (result.authCleanupPending) alert('The account remains blocked by Firestore Rules, but Firebase Authentication still needs retry.');
+              else alert('Access block completed.');
+              renderMemberRows(); renderAll();
+            } catch (error) {
+              console.error('Retry account access block failed:', error);
+              alert(error?.message || 'Retry access block gagal.');
+            }
+          }
+        });
+      } else if (action === 'deactivate') {
+        openConfirm({
+          title: 'Deactivate account?',
+          message: `“${member.name}” will immediately lose workspace access. Task history and member identity will be kept. The account can be reactivated later.`,
+          confirmText: 'Deactivate account', danger: true,
+          onConfirm: async () => {
+            try {
+              const result = await setManagedAccountStatus(member.id, 'inactive');
+              if (result.authCleanupPending) alert('Workspace access is blocked, but Firebase Authentication needs a retry. The profile remains blocked by Firestore Rules.');
+              else alert('Account deactivated. The user must sign in again after reactivation.');
+              renderMemberRows(); renderAll();
+            } catch (error) {
+              console.error('Deactivate account failed:', error);
+              alert(error?.message || 'Account gagal dinonaktifkan.');
+            }
+          }
+        });
+      } else if (action === 'reactivate') {
+        openConfirm({
+          title: 'Reactivate account?',
+          message: `“${member.name}” will be allowed to sign in again. Any browser session from before deactivation must sign out and sign in again.`,
+          confirmText: 'Reactivate account', danger: false,
+          onConfirm: async () => {
+            try {
+              await setManagedAccountStatus(member.id, 'active');
+              alert('Account reactivated. The user needs to sign out and sign in again.');
+              renderMemberRows(); renderAll();
+            } catch (error) {
+              console.error('Reactivate account failed:', error);
+              alert(error?.message || 'Account gagal diaktifkan kembali.');
+            }
+          }
+        });
+      } else if (action === 'remove' || action === 'retry-cleanup') {
+        openConfirm({
+          title: action === 'retry-cleanup' ? 'Retry account cleanup?' : 'Permanently remove account?',
+          message: action === 'retry-cleanup'
+            ? `Retry cleanup for “${member.name}”. Workspace access remains blocked while cleanup is pending.`
+            : `This permanently removes the login and profile for “${member.name}”. Task history and the archived member identity will be kept. The email will remain blocked until All Access approves re-onboarding.`,
+          confirmText: action === 'retry-cleanup' ? 'Retry cleanup' : 'Remove permanently',
+          danger: true,
+          requireTypedText: action === 'retry-cleanup' ? null : label,
+          typedLabel: 'Type this email or member name to confirm',
+          typedHelp: `Enter exactly: ${label}`,
+          onConfirm: async () => {
+            try {
+              const result = await permanentlyRemoveAccount(member.id);
+              if (result.cleanupPending) alert('Workspace access is blocked and the identity is archived, but cleanup is incomplete. Use Retry cleanup before allowing re-onboarding.');
+              else alert('Account permanently removed. Task and activity history are preserved; this email is blocked from re-onboarding until approved.');
+              renderMemberRows(); renderAll();
+            } catch (error) {
+              console.error('Permanent account removal failed:', error);
+              alert(error?.message || 'Account gagal dihapus secara permanen.');
+            }
+          }
+        });
+      } else if (action === 'allow-reonboarding') {
+        openConfirm({
+          title: 'Allow re-onboarding?',
+          message: `Allow “${member.name}” (${label}) to sign in and complete a new profile. The new profile will start as a pending viewer until a department is assigned.`,
+          confirmText: 'Allow re-onboarding', danger: false,
+          onConfirm: async () => {
+            try {
+              await allowAccountReonboarding(member.id);
+              alert('Re-onboarding approved. The user can sign in and create a new profile.');
+              renderMemberRows(); renderAll();
+            } catch (error) {
+              console.error('Allow re-onboarding failed:', error);
+              alert(error?.message || 'Re-onboarding gagal disetujui.');
+            }
+          }
+        });
       }
     }));
 
-    box.querySelectorAll('input[data-field="active"]').forEach(inp => inp.addEventListener('change', async e => {
-      const idx = parseInt(e.target.closest('.member-row').dataset.idx);
-      const member = members[idx];
-      if (!member) return;
-      member.active = e.target.checked;
-      renderMemberRows();
-      renderRoleSelect();
-      try {
-        await saveMember(member);
-      } catch (error) {
-        console.error('❌ Gagal mengubah status active member:', error);
-        alert('Status member gagal disimpan.');
-      }
-    }));
     box.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', e => {
-      const idx = parseInt(e.target.dataset.remove);
-      const m = members[idx];
-      if (!m) return;
-      openConfirm({ title:'Remove member?', message:`“${m.name}” will be removed from the team member list.`, confirmText:'Remove member', danger:true, onConfirm: async () => {
-        try {
-          await deleteMember(m.id);
-          members.splice(idx,1);
-          renderMemberRows();
-          renderAll();
-        } catch (error) {
-          console.error('❌ Gagal menghapus member:', error);
-          alert('Member gagal dihapus.');
-        }
+      const idx = parseInt(e.currentTarget.dataset.remove, 10);
+      const member = members[idx];
+      if (!member || member.authUid || isRemoved(member)) return;
+      openConfirm({ title:'Remove roster entry?', message:`“${member.name}” has no linked login. This removes only this unlinked roster entry; it does not delete a Google account.`, confirmText:'Remove roster entry', danger:true, onConfirm: async () => {
+        try { await deleteMember(member.id); members.splice(idx,1); renderMemberRows(); renderAll(); }
+        catch (error) { console.error('❌ Gagal menghapus member:', error); alert('Member gagal dihapus.'); }
       } });
     }));
   }
@@ -7548,6 +7947,8 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   const screen=document.getElementById('welcomeScreen');
   if(screen){ screen.classList.add('hidden'); }
   document.getElementById('profileSetupScreen')?.classList.add('hidden');
+  document.getElementById('accountRestrictedScreen')?.classList.remove('visible');
+  document.getElementById('accountRestrictedScreen')?.setAttribute('aria-hidden', 'true');
   document.getElementById('departmentPendingScreen')?.classList.remove('visible');
   document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   document.querySelector('.app')?.classList.remove('app-hidden');
@@ -7558,6 +7959,67 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   if (notifyButton) notifyButton.style.display = readOnlyPending ? 'none' : '';
   if (exportButton) exportButton.style.display = readOnlyPending ? 'none' : '';
   if (importButton) importButton.style.display = readOnlyPending ? 'none' : '';
+}
+
+function showAccountRestrictedScreen(user, status='inactive'){
+  stopAllRealtimeListeners();
+  stopCommentsRealtime();
+  currentUserUid = null;
+  currentUserProfile = null;
+  currentRole = 'admin';
+  currentAccessLevel = 'standard';
+  workspaceActivatedUid = null;
+  workspaceActivationUid = null;
+  workspaceActivationPromise = null;
+  // Drop client-side workspace caches immediately when access is revoked.
+  // The workspace shell is hidden below as an additional UI safeguard, but
+  // clearing memory also prevents stale task/member data from resurfacing if
+  // the user returns through an unexpected UI path.
+  tasks = [];
+  members = [];
+  departments = DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
+  products = {};
+  activities = [];
+  messages = [];
+  notifications = [];
+  notificationKnownIds = new Set();
+  selectedTaskIds = new Set();
+  activeDepartmenton = 'all';
+  activeProduct = null;
+  myTasksOnly = false;
+  archiveMode = false;
+  viewMode = 'board';
+  document.getElementById('board')?.replaceChildren();
+  document.getElementById('summaryGrid')?.replaceChildren();
+  document.getElementById('divSummary')?.replaceChildren();
+  document.getElementById('myTasksSummary')?.replaceChildren();
+  document.getElementById('dashboardView')?.replaceChildren();
+  document.getElementById('recentActivityList')?.replaceChildren();
+  document.getElementById('memberRows')?.replaceChildren();
+  document.getElementById('notificationList')?.replaceChildren();
+  document.getElementById('notificationPanel')?.classList.remove('open');
+  document.querySelectorAll('.overlay.open').forEach(el => el.classList.remove('open'));
+  document.getElementById('welcomeScreen')?.classList.add('hidden');
+  document.getElementById('profileSetupScreen')?.classList.add('hidden');
+  document.getElementById('departmentPendingScreen')?.classList.remove('visible');
+  document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
+  document.querySelector('.app')?.classList.add('app-hidden');
+
+  const screen = document.getElementById('accountRestrictedScreen');
+  const title = document.getElementById('accountRestrictedTitle');
+  const message = document.getElementById('accountRestrictedMessage');
+  const email = document.getElementById('accountRestrictedEmail');
+  if (title) title.textContent = status === 'reauth-required' ? 'Sign in again to continue' : 'Workspace access unavailable';
+  if (message) {
+    if (status === 'inactive') message.textContent = 'An administrator has deactivated this account. Workspace access is blocked. Contact All Access if this access is needed again.';
+    else if (status === 'removed' || status === 'blocked') message.textContent = 'This email is not currently approved for workspace access. Contact All Access to request re-onboarding. No task data is available from this screen.';
+    else if (status === 'reauth-required') message.textContent = 'This account has been reactivated, but this browser session predates the change. Sign out and sign in again to start a fresh, authorized session.';
+    else message.textContent = 'We could not verify the account status. For safety, workspace access is paused. Please sign out and try again, or contact All Access.';
+  }
+  if (email) email.textContent = user?.email || '';
+  if (screen) { screen.classList.add('visible'); screen.setAttribute('aria-hidden', 'false'); }
+  renderNotifications();
+  finishAuthBoot();
 }
 
 function finishAuthBoot(){
@@ -7577,6 +8039,8 @@ function isReadOnlyPendingUser(){
 function showDepartmentPendingScreen(profile, user){
   const screen = document.getElementById('departmentPendingScreen');
   if (!screen) return;
+  document.getElementById('accountRestrictedScreen')?.classList.remove('visible');
+  document.getElementById('accountRestrictedScreen')?.setAttribute('aria-hidden', 'true');
   document.getElementById('welcomeScreen')?.classList.add('hidden');
   document.getElementById('profileSetupScreen')?.classList.add('hidden');
   document.querySelector('.app')?.classList.add('app-hidden');
@@ -7595,7 +8059,29 @@ function watchCurrentUserProfile(user){
   unsubscribeCurrentUserProfile = subscribeToUserProfile(
     user.uid,
     async freshProfile => {
-      if (!freshProfile) return;
+      if (!freshProfile) {
+        showAccountRestrictedScreen(user, 'removed');
+        return;
+      }
+      if (['inactive', 'removed'].includes(String(freshProfile.accountStatus || ''))) {
+        currentUserProfile = { ...freshProfile };
+        showAccountRestrictedScreen(user, freshProfile.accountStatus);
+        return;
+      }
+      if (Number(freshProfile.requireAuthAfter || 0) > 0) {
+        try {
+          const authTime = await getCurrentAuthTimeSeconds();
+          if (authTime < Number(freshProfile.requireAuthAfter)) {
+            currentUserProfile = { ...freshProfile };
+            showAccountRestrictedScreen(user, 'reauth-required');
+            return;
+          }
+        } catch (error) {
+          console.warn('Unable to verify current auth session time:', error);
+          showAccountRestrictedScreen(user, 'verification-error');
+          return;
+        }
+      }
       const wasPending = isDepartmentAssignmentPending(currentUserProfile);
       currentUserProfile = { ...(currentUserProfile || {}), ...freshProfile };
       if (workspaceActivatedUid !== user.uid) {
@@ -7633,6 +8119,23 @@ async function routeAuthenticatedUser(profile, user, options = {}){
     showProfileSetup(user);
     finishAuthBoot();
     return;
+  }
+  if (['inactive', 'removed'].includes(String(profile.accountStatus || ''))) {
+    showAccountRestrictedScreen(user, profile.accountStatus);
+    return;
+  }
+  if (Number(profile.requireAuthAfter || 0) > 0) {
+    try {
+      const authTime = await getCurrentAuthTimeSeconds();
+      if (authTime < Number(profile.requireAuthAfter)) {
+        showAccountRestrictedScreen(user, 'reauth-required');
+        return;
+      }
+    } catch (error) {
+      console.warn('Unable to verify current auth session time:', error);
+      showAccountRestrictedScreen(user, 'verification-error');
+      return;
+    }
   }
 
   let resolvedProfile = { ...profile };
@@ -7734,7 +8237,8 @@ async function activateWorkspace(profile, user){
   }
 }
 
-function showProfileSetup(user){
+function showProfileSetup(user, setupOptions = {}){
+  const reOnboardingApproved = setupOptions.reOnboardingApproved === true;
   const screen = document.getElementById('profileSetupScreen');
   const emailInput = document.getElementById('profileEmail');
   const usernameInput = document.getElementById('profileUsername');
@@ -7763,6 +8267,8 @@ function showProfileSetup(user){
 
   // Sembunyikan layar lain
   document.getElementById('welcomeScreen')?.classList.add('hidden');
+  document.getElementById('accountRestrictedScreen')?.classList.remove('visible');
+  document.getElementById('accountRestrictedScreen')?.setAttribute('aria-hidden', 'true');
   document.getElementById('departmentPendingScreen')?.classList.remove('visible');
   document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   document.querySelector('.app')?.classList.add('app-hidden');
@@ -7872,7 +8378,8 @@ photoResetButton?.addEventListener('click', () => {
 
   updatePhotoPosition();
 });
-completeProfileButton?.addEventListener('click', async () => {
+if (completeProfileButton) {
+  completeProfileButton.onclick = async () => {
   const usernameInput = document.getElementById('profileUsername');
   const username = usernameInput?.value.trim() || '';
 
@@ -7889,7 +8396,10 @@ completeProfileButton?.addEventListener('click', async () => {
     const selectedPhoto =
       photoPreview?.querySelector('img')?.src || null;
 
-    const memberId = makeFirebaseMemberId({ username }, user);
+    const baseMemberId = makeFirebaseMemberId({ username }, user);
+    const memberId = reOnboardingApproved
+      ? `${baseMemberId}-${String(user.uid || '').slice(0, 7)}`
+      : baseMemberId;
 
     const profile = await window.createUserProfile(
       user.uid,
@@ -7899,6 +8409,7 @@ completeProfileButton?.addEventListener('click', async () => {
         memberId,
         role: 'member',
         accessLevel: 'standard',
+        accountStatus: 'active',
         department: null,
         departmentStatus: 'pending',
         profileCompleted: true,
@@ -7913,7 +8424,15 @@ completeProfileButton?.addEventListener('click', async () => {
       }
     );
 
-    console.log('Profile berhasil dibuat:', profile);
+    if (reOnboardingApproved) {
+      try {
+        await consumeAccountReonboardingApproval(user.uid);
+      } catch (approvalError) {
+        // A just-created profile is already limited to pending/view-only. Keep
+        // access safe if approval cleanup needs retry and record the failure.
+        console.warn('Re-onboarding approval could not be consumed yet:', approvalError);
+      }
+    }
     await routeAuthenticatedUser(profile, user);
 
   }catch(error){
@@ -7924,11 +8443,12 @@ completeProfileButton?.addEventListener('click', async () => {
       (error?.message || 'Unknown error')
     );
 
-  }finally{
-    completeProfileButton.disabled = false;
-    completeProfileButton.textContent = 'Complete profile';
-  }
-});
+      } finally {
+      completeProfileButton.disabled = false;
+      completeProfileButton.textContent = 'Complete profile';
+    }
+  };
+}
 photoPreview?.addEventListener('pointerdown', (event) => {
   const img = photoPreview.querySelector('img');
 
@@ -8367,8 +8887,24 @@ onAuthStateChanged(auth, async (user) => {
   try {
     let profile = await getUserProfile(user.uid);
     if (!profile) {
-      showProfileSetup(user);
+      let onboardingState = 'none';
+      try {
+        onboardingState = await getAccountOnboardingState();
+      } catch (stateError) {
+        console.error('Gagal memverifikasi status re-onboarding:', stateError);
+        showAccountRestrictedScreen(user, 'verification-error');
+        return;
+      }
+      if (onboardingState === 'blocked') {
+        showAccountRestrictedScreen(user, 'blocked');
+        return;
+      }
+      showProfileSetup(user, { reOnboardingApproved: onboardingState === 'approved' });
       finishAuthBoot();
+      return;
+    }
+    if (['inactive', 'removed'].includes(String(profile.accountStatus || ''))) {
+      showAccountRestrictedScreen(user, profile.accountStatus);
       return;
     }
 
@@ -8412,6 +8948,15 @@ document.getElementById('departmentPendingSignOutBtn')?.addEventListener('click'
     await signOut(auth);
   } catch (error) {
     console.error('Gagal sign out dari layar pending:', error);
+  }
+});
+
+document.getElementById('accountRestrictedSignOutBtn')?.addEventListener('click', async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error('Gagal sign out dari layar account restriction:', error);
+    alert('Sign out gagal. Silakan refresh halaman dan coba lagi.');
   }
 });
 
@@ -8518,6 +9063,8 @@ function showWelcome(){
     screen.classList.remove('hidden');
     screen.scrollTop = 0;
   }
+  document.getElementById('accountRestrictedScreen')?.classList.remove('visible');
+  document.getElementById('accountRestrictedScreen')?.setAttribute('aria-hidden', 'true');
   document.getElementById('departmentPendingScreen')?.classList.remove('visible');
   document.getElementById('departmentPendingScreen')?.setAttribute('aria-hidden', 'true');
   resetWelcomeScrollReveal();

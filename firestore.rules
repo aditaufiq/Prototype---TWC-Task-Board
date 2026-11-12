@@ -4,33 +4,209 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // =========================
-    // HELPER FUNCTIONS
+    // SHARED HELPERS
     // =========================
 
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isAllAccess() {
-      return isSignedIn()
-        && get(
-          /databases/$(database)/documents/users/$(request.auth.uid)
-        ).data.accessLevel == "all";
+    function currentUserDoc() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      );
     }
 
-    function isTaskPic() {
+    function currentMemberId() {
+      return currentUserDoc().data.memberId;
+    }
+
+    // Accounts predating accountStatus stay active for compatibility. Accounts
+    // explicitly marked inactive/removed are blocked, and a reactivated account
+    // must use a fresh authentication session after requireAuthAfter.
+    function isAccountEnabled() {
       return isSignedIn()
-        && resource.data.assignee ==
-           get(
-             /databases/$(database)/documents/users/$(request.auth.uid)
-           ).data.memberId;
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && (
+          !currentUserDoc().data.keys().hasAny(['accountStatus'])
+          || currentUserDoc().data.accountStatus == 'active'
+        )
+        && (
+          !currentUserDoc().data.keys().hasAny(['requireAuthAfter'])
+          || request.auth.token.auth_time >= currentUserDoc().data.requireAuthAfter
+        );
+    }
+
+    function isAllAccess() {
+      return isAccountEnabled()
+        && currentUserDoc().data.accessLevel == 'all';
+    }
+
+    // Active-user gate for workspace writes and collaboration features.
+    // Pending users receive limited read access through canReadTaskWorkspace().
+    // Older profiles that predate departmentStatus remain active for compatibility.
+    function isWorkspaceActive() {
+      return isAccountEnabled()
+        && (
+          currentUserDoc().data.accessLevel == 'all'
+          || !currentUserDoc().data.keys().hasAny(['departmentStatus'])
+          || currentUserDoc().data.departmentStatus == null
+          || currentUserDoc().data.departmentStatus == 'assigned'
+        );
+    }
+
+    // Pending users may read task-board context while waiting for department
+    // assignment, but only while their account itself remains enabled.
+    function isPendingWorkspaceViewer() {
+      return isAccountEnabled()
+        && currentUserDoc().data.accessLevel != 'all'
+        && currentUserDoc().data.departmentStatus == 'pending';
+    }
+
+    function canReadTaskWorkspace() {
+      return isWorkspaceActive() || isPendingWorkspaceViewer();
     }
 
     function isOwnMember(memberId) {
-      return isSignedIn()
-        && get(
-          /databases/$(database)/documents/users/$(request.auth.uid)
-        ).data.memberId == memberId;
+      return isAccountEnabled()
+        && currentMemberId() == memberId;
+    }
+
+    function accountEmailMayOnboard(emailAddress) {
+      let restrictionPath = /databases/$(database)/documents/restrictedAccounts/$(emailAddress);
+      return !exists(restrictionPath)
+        || get(restrictionPath).data.status == 'approved';
+    }
+
+    function memberIdMayBeClaimed(memberId) {
+      let memberPath = /databases/$(database)/documents/members/$(memberId);
+      return !exists(memberPath)
+        || (
+          (!get(memberPath).data.keys().hasAny(['accountStatus'])
+            || get(memberPath).data.accountStatus != 'removed')
+          && (
+            !get(memberPath).data.keys().hasAny(['authUid'])
+            || get(memberPath).data.authUid == request.auth.uid
+          )
+        );
+    }
+
+    function isTaskPic() {
+      return isWorkspaceActive()
+        && resource.data.assignee is string
+        && (
+          resource.data.assignee == currentMemberId()
+          || (
+            exists(
+              /databases/$(database)/documents/members/$(resource.data.assignee)
+            )
+            && get(
+              /databases/$(database)/documents/members/$(resource.data.assignee)
+            ).data.authUid == request.auth.uid
+          )
+        );
+    }
+
+    function isTaskContributor() {
+      return isWorkspaceActive()
+        && resource.data.contributors is list
+        && currentMemberId() in resource.data.contributors;
+    }
+
+    function actorIsSelf(actorUid, actorMemberId) {
+      return isWorkspaceActive()
+        && actorUid == request.auth.uid
+        && actorMemberId == currentMemberId();
+    }
+
+    function taskIdentityUnchanged() {
+      return request.resource.data.id == resource.data.id
+        && request.resource.data.createdBy == resource.data.createdBy
+        && (
+          !resource.data.keys().hasAny(['createdByUid'])
+          || request.resource.data.createdByUid == resource.data.createdByUid
+        );
+    }
+
+    function previousTaskRevision() {
+      return resource.data.keys().hasAny(['revision']) ? resource.data.revision : 0;
+    }
+
+    function validTaskRevisionTransition() {
+      // During rollout, already-open older tabs may preserve the current revision.
+      // New app builds increment it by one; legacy tabs may leave it unchanged.
+      return (
+        !resource.data.keys().hasAny(['revision'])
+        && !request.resource.data.keys().hasAny(['revision'])
+      ) || (
+        request.resource.data.revision is int
+        && (
+          request.resource.data.revision == previousTaskRevision()
+          || request.resource.data.revision == previousTaskRevision() + 1
+        )
+      );
+    }
+
+    function updatedByIsSelfOrUnchanged() {
+      return (
+        !request.resource.data.keys().hasAny(['updatedByUid'])
+        && !resource.data.keys().hasAny(['updatedByUid'])
+      )
+      || request.resource.data.updatedByUid == resource.data.updatedByUid
+      || request.resource.data.updatedByUid == request.auth.uid;
+    }
+
+    function onlyTaskPicFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'title',
+        'description',
+        'descriptionHtml',
+        'image',
+        'links',
+        'contributors',
+        'attachments',
+        'attachmentMetadata',
+        'revision',
+        'status',
+        'statusHistory',
+        'updatedAt',
+        'updatedByUid'
+      ]);
+    }
+
+    function onlyTaskContributorFieldsChanged() {
+  return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+    'description',
+    'descriptionHtml',
+    'image',
+    'links',
+    'attachments',
+    'attachmentMetadata',
+    'revision',
+    'updatedAt',
+    'updatedByUid'
+  ]);
+}
+
+    function picStatusTransitionIsValid() {
+      return request.resource.data.status == resource.data.status
+        || (
+          resource.data.status == 'todo'
+          && request.resource.data.status == 'progress'
+        )
+        || (
+          resource.data.status == 'progress'
+          && request.resource.data.status == 'review'
+        );
+    }
+
+    function notificationRecipientMemberMatches() {
+      return exists(
+        /databases/$(database)/documents/members/$(request.resource.data.recipientMemberId)
+      )
+      && get(
+        /databases/$(database)/documents/members/$(request.resource.data.recipientMemberId)
+      ).data.authUid == request.resource.data.recipientUid;
     }
 
 
@@ -40,293 +216,415 @@ service cloud.firestore {
 
     match /users/{userId} {
 
-      allow read: if isSignedIn() && request.auth.uid == userId;
+      // A user can only read their own profile.
+      allow read: if isSignedIn()
+                  && request.auth.uid == userId;
 
+      // Controlled onboarding profile.
       allow create: if isSignedIn()
                     && request.auth.uid == userId
-                    && request.resource.data.role == "member"
-                    && request.resource.data.accessLevel == "standard"
+                    && request.auth.token.email is string
+                    && request.auth.token.email_verified == true
+                    && request.resource.data.email == request.auth.token.email
+                    && accountEmailMayOnboard(request.auth.token.email)
+                    && (!request.resource.data.keys().hasAny(['accountStatus'])
+                        || request.resource.data.accountStatus == 'active')
+                    && request.resource.data.role == 'member'
+                    && request.resource.data.accessLevel == 'standard'
                     && request.resource.data.department == null
-                    && request.resource.data.departmentStatus == "pending"
-                    && request.resource.data.profileCompleted == true;
+                    && request.resource.data.departmentStatus == 'pending'
+                    && request.resource.data.profileCompleted == true
+                    && request.resource.data.memberId is string
+                    && request.resource.data.memberId.size() > 0
+                    && memberIdMayBeClaimed(request.resource.data.memberId)
+                    && request.resource.data.username is string;
 
-      allow update: if isSignedIn()
-                    && request.auth.uid == userId
-                    && request.resource.data.role == resource.data.role
-                    && request.resource.data.accessLevel == resource.data.accessLevel
-                    && request.resource.data.department == resource.data.department
-                    && request.resource.data.departmentStatus == resource.data.departmentStatus;
+      // User can edit only profile-facing fields.
+      // Privilege and organizational fields remain immutable here.
+      allow update: if (
+                      isAccountEnabled()
+                      && request.auth.uid == userId
+                      && request.resource.data.role == resource.data.role
+                      && request.resource.data.accessLevel == resource.data.accessLevel
+                      && request.resource.data.department == resource.data.department
+                      && request.resource.data.departmentStatus == resource.data.departmentStatus
+                      && request.resource.data.profileCompleted == resource.data.profileCompleted
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'username',
+                        'email',
+                        'memberId',
+                        'profilePhoto',
+                        'profilePhotoMeta',
+                        'profilePhotoPosition',
+                        'updatedAt'
+                      ])
+                    )
+                    || (
+                      isAllAccess()
+                      && request.resource.data.role == resource.data.role
+                      && request.resource.data.accessLevel == resource.data.accessLevel
+                      && request.resource.data.profileCompleted == resource.data.profileCompleted
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'department',
+                        'departmentStatus',
+                        'updatedAt'
+                      ])
+                      && request.resource.data.department is string
+                      && request.resource.data.department.size() > 0
+                      && request.resource.data.departmentStatus == 'assigned'
+                    );
 
       allow delete: if false;
 
 
-      // =========================
-      // PERSONAL NOTIFICATIONS
-      // =========================
+    // =========================
+    // PERSONAL NOTIFICATIONS
+    // =========================
 
-      match /notifications/{notificationId} {
+    match /notifications/{notificationId} {
 
-        // Each user can only read their own notifications.
-        allow read: if isSignedIn() && request.auth.uid == userId;
+      // Notification data is private to the recipient.
+      allow read: if isSignedIn()
+                  && request.auth.uid == userId
+                  && isWorkspaceActive();
 
-        // Notification creation is tied to a valid source event.
-        allow create: if isSignedIn()
-                      && request.resource.data.recipientUid == userId
-                      && (
+      // A client can only create a notification for a real event
+      // it is currently performing, or for its own deadline/legacy data.
+      allow create: if isWorkspaceActive()
+                    && request.auth.uid != null
+                    && request.resource.data.recipientUid == userId
+                    && (
 
-                        // =====================================
-                        // COMMENT / REPLY / MENTION
-                        // =====================================
-                        (
-                          request.resource.data.sourceType == "comment"
-                          && request.resource.data.actorUid == request.auth.uid
-                          && request.resource.data.commentId
-                             == request.resource.data.sourceId
-                          && getAfter(
-                               /databases/$(database)/documents/comments/$(request.resource.data.commentId)
-                             ).data.authorUid == request.auth.uid
-                          && get(
-                               /databases/$(database)/documents/members/$(request.resource.data.recipientMemberId)
-                             ).data.authUid == userId
-                          && (
-                            (
-                              request.resource.data.type == "mention"
-                              && request.resource.data.priority == "high"
-                              && request.resource.data.recipientMemberId in
-                                 getAfter(
+                      // ---------------------------------
+                      // DEADLINE / OVERDUE
+                      // Check this simple branch first.
+                      // ---------------------------------
+                      (
+                        request.resource.data.sourceType == 'deadline'
+                        && request.resource.data.recipientUid == request.auth.uid
+                        && request.resource.data.actorUid == request.auth.uid
+                        && request.resource.data.recipientMemberId == currentMemberId()
+                        && request.resource.data.actorMemberId == currentMemberId()
+                        && request.resource.data.type in ['deadline', 'overdue']
+                      )
+
+                      ||
+
+                      // ---------------------------------
+                      // COMMENT / REPLY / MENTION
+                      // ---------------------------------
+                      (
+                        request.resource.data.sourceType == 'comment'
+                        && actorIsSelf(
+                             request.resource.data.actorUid,
+                             request.resource.data.actorMemberId
+                           )
+                        && request.resource.data.commentId == request.resource.data.sourceId
+                        && getAfter(
+                             /databases/$(database)/documents/comments/$(request.resource.data.commentId)
+                           ).data.authorUid == request.auth.uid
+                        && notificationRecipientMemberMatches()
+                        && (
+
+                          // Mention must actually mention the recipient.
+                          (
+                            request.resource.data.type == 'mention'
+                            && request.resource.data.priority == 'high'
+                            && request.resource.data.recipientMemberId in
+                               getAfter(
+                                 /databases/$(database)/documents/comments/$(request.resource.data.commentId)
+                               ).data.mentions
+                          )
+
+                          ||
+
+                          // Reply must target the parent comment author.
+                          (
+                            request.resource.data.type == 'reply'
+                            && getAfter(
+                                 /databases/$(database)/documents/comments/$(request.resource.data.commentId)
+                               ).data.replyToId != null
+                            && get(
+                                 /databases/$(database)/documents/comments/$(getAfter(
                                    /databases/$(database)/documents/comments/$(request.resource.data.commentId)
-                                 ).data.mentions
-                            )
-                            ||
-                            (
-                              request.resource.data.type == "reply"
-                              && getAfter(
+                                 ).data.replyToId)
+                               ).data.authorId == request.resource.data.recipientMemberId
+                          )
+
+                          ||
+
+                          // Normal comment must target the current task PIC.
+                          (
+                            request.resource.data.type == 'message'
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(getAfter(
                                    /databases/$(database)/documents/comments/$(request.resource.data.commentId)
-                                 ).data.replyToId != null
-                              && get(
-                                   /databases/$(database)/documents/comments/$(getAfter(
-                                     /databases/$(database)/documents/comments/$(request.resource.data.commentId)
-                                   ).data.replyToId)
-                                 ).data.authorId
-                                   == request.resource.data.recipientMemberId
-                            )
-                            ||
-                            (
-                              request.resource.data.type == "message"
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(getAfter(
-                                     /databases/$(database)/documents/comments/$(request.resource.data.commentId)
-                                   ).data.taskId)
-                                 ).data.assignee
-                                   == request.resource.data.recipientMemberId
-                            )
+                                 ).data.taskId)
+                               ).data.assignee == request.resource.data.recipientMemberId
                           )
                         )
+                      )
 
-                        ||
+                      ||
 
-                        // =====================================
-                        // TASK EVENT NOTIFICATIONS
-                        // =====================================
-                        (
-                          request.resource.data.sourceType == "taskEvent"
-                          && request.resource.data.actorUid == request.auth.uid
-                          && request.resource.data.taskId is string
-                          && request.resource.data.sourceId == request.resource.data.taskId
-                          && get(
-                               /databases/$(database)/documents/members/$(request.resource.data.recipientMemberId)
-                             ).data.authUid == userId
-                          && (
-
-                            // ---------------------------------
-                            // NEW TASK ASSIGNED
-                            // ---------------------------------
-                            (
-                              request.resource.data.type == "assigned"
-                              && request.resource.data.sourceEvent == "assigned_created"
-                              && isAllAccess()
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.assignee == request.resource.data.recipientMemberId
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.createdByUid == request.auth.uid
-                            )
-
-                            ||
-
-                            // ---------------------------------
-                            // EXISTING TASK REASSIGNED
-                            // ---------------------------------
-                            (
-                              request.resource.data.type == "assigned"
-                              && request.resource.data.sourceEvent == "assigned"
-                              && isAllAccess()
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.assignee == request.resource.data.recipientMemberId
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.assignee != getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.assignee
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.updatedByUid == request.auth.uid
-                            )
-
-                            ||
-
-                            // ---------------------------------
-                            // SUBMITTED FOR REVIEW
-                            // ---------------------------------
-                            (
-                              request.resource.data.type == "review"
-                              && request.resource.data.sourceEvent == "review_submitted"
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.status != "review"
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.status == "review"
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.updatedByUid == request.auth.uid
-                              && (
-                                getAfter(
-                                  /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                ).data.createdByUid == userId
-                                ||
-                                (
-                                  getAfter(
-                                    /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                  ).data.createdBy == request.resource.data.recipientMemberId
-                                  && get(
-                                       /databases/$(database)/documents/members/$(request.resource.data.recipientMemberId)
-                                     ).data.authUid == userId
-                                )
-                              )
-                            )
-
-                            ||
-
-                            // ---------------------------------
-                            // TASK COMPLETED
-                            // ---------------------------------
-                            (
-                              request.resource.data.type == "completed"
-                              && request.resource.data.sourceEvent == "completed"
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.status != "done"
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.status == "done"
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.updatedByUid == request.auth.uid
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.assignee == request.resource.data.recipientMemberId
-                            )
-
-                            ||
-
-                            // ---------------------------------
-                            // CHANGES REQUESTED
-                            // ---------------------------------
-                            (
-                              request.resource.data.type == "changes"
-                              && request.resource.data.sourceEvent == "changes_requested"
-                              && get(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.status == "review"
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.status == "progress"
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.updatedByUid == request.auth.uid
-                              && getAfter(
-                                   /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
-                                 ).data.assignee == request.resource.data.recipientMemberId
-                            )
+                      // ---------------------------------
+                      // TASK EVENT NOTIFICATIONS
+                      // ---------------------------------
+                      (
+                        request.resource.data.sourceType == 'taskEvent'
+                        && actorIsSelf(
+                             request.resource.data.actorUid,
+                             request.resource.data.actorMemberId
+                           )
+                        && request.resource.data.taskId is string
+                        && request.resource.data.sourceId == request.resource.data.taskId
+                        && (
+                          notificationRecipientMemberMatches()
+                          || (
+                            request.resource.data.type == 'review'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.createdByUid == userId
                           )
                         )
+                        && (
 
-                        ||
+                          // New task assigned at creation time.
+                          (
+                            request.resource.data.type == 'assigned'
+                            && request.resource.data.sourceEvent == 'assigned_created'
+                            && isAllAccess()
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.assignee == request.resource.data.recipientMemberId
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.createdByUid == request.auth.uid
+                          )
 
-                        // =====================================
-                        // DEADLINE / OVERDUE
-                        // =====================================
-                        (
-                          userId == request.auth.uid
-                          && request.resource.data.sourceType == "deadline"
-                          && request.resource.data.actorUid == request.auth.uid
+                          ||
+
+                          // Existing task reassigned by all-access.
+                          (
+                            request.resource.data.type == 'assigned'
+                            && request.resource.data.sourceEvent == 'assigned'
+                            && isAllAccess()
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.assignee == request.resource.data.recipientMemberId
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.assignee != getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.assignee
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.updatedByUid == request.auth.uid
+                          )
+
+                          ||
+
+                          // PIC submitted for review.
+                          (
+                            request.resource.data.type == 'review'
+                            && request.resource.data.sourceEvent == 'review_submitted'
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.status != 'review'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.status == 'review'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.updatedByUid == request.auth.uid
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.createdByUid == userId
+                          )
+
+                          ||
+
+                          // Admin marked task done; notify PIC.
+                          (
+                            request.resource.data.type == 'completed'
+                            && request.resource.data.sourceEvent == 'completed'
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.status != 'done'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.status == 'done'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.updatedByUid == request.auth.uid
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.assignee == request.resource.data.recipientMemberId
+                          )
+
+                          ||
+
+                          // Admin requested changes; notify PIC.
+                          (
+                            request.resource.data.type == 'changes'
+                            && request.resource.data.sourceEvent == 'changes_requested'
+                            && get(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.status == 'review'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.status == 'progress'
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.updatedByUid == request.auth.uid
+                            && getAfter(
+                                 /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                               ).data.assignee == request.resource.data.recipientMemberId
+                          )
                         )
+                      )
 
-                        ||
+                      ||
 
-                        // =====================================
-                        // LEGACY / MIGRATION
-                        // =====================================
-                        (
-                          userId == request.auth.uid
-                          && request.resource.data.legacy == true
-                          && request.resource.data.migratedByUid == request.auth.uid
-                        )
+                      // ---------------------------------
+                      // LEGACY / MIGRATION
+                      // ---------------------------------
+                      (
+                        request.resource.data.legacy == true
+                        && request.resource.data.migratedByUid == request.auth.uid
+                        && isAllAccess()
+                      )
+                    );
 
-                        ||
+      // Only read-state fields may change after creation.
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && isWorkspaceActive()
+                    && request.resource.data.recipientUid == userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                         'read',
+                         'readAt',
+                         'updatedAt'
+                       ]);
 
-                        (
-                          isAllAccess()
-                          && request.resource.data.legacy == true
-                          && request.resource.data.migratedByUid == request.auth.uid
-                        )
-                      );
-
-        // User can only change read-state metadata.
-        allow update: if isSignedIn()
-                      && request.auth.uid == userId
-                      && request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly([
-                           'read',
-                           'readAt',
-                           'updatedAt'
-                         ]);
-
-        // Only admin/all-access can delete notifications.
-        allow delete: if isAllAccess();
+      allow delete: if isAllAccess();
       }
-    }
+  }
 
 
     // =========================
     // MEMBERS
     // =========================
 
-    match /members/{memberId} {
+        match /members/{memberId} {
 
-      allow read: if isSignedIn();
+      // Disabled accounts lose shared roster access; active workspace users
+      // and All Access administrators can continue reading the member roster.
+      allow read: if isAccountEnabled();
 
-      allow create: if isAllAccess()
+      // Admin can create roster records.
+      // A user can also create only its own safe member record.
+      allow create: if (
+                      isAllAccess()
+                      && request.resource.data.id == memberId
+                      && request.resource.data.name is string
+                      && request.resource.data.email is string
+                      && request.resource.data.role in ['member', 'admin']
+                      && request.resource.data.active is bool
+                    )
                     || (
                       isOwnMember(memberId)
                       && request.resource.data.id == memberId
                       && request.resource.data.authUid == request.auth.uid
-                      && request.resource.data.role == "member"
+                      && request.resource.data.role == 'member'
                       && request.resource.data.active == true
                     );
 
-      allow update: if isAllAccess()
+      // Admin may edit approved roster fields.
+      // A member can edit only their own profile-facing fields.
+      allow update: if (
+                      isAllAccess()
+                      && request.resource.data.id == memberId
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                           'name',
+                           'email',
+                           'color',
+                           'role',
+                           'active',
+                           'authUid',
+                           'profilePhoto',
+                           'profilePhotoMeta',
+                           'profilePhotoPosition',
+                           'department',
+                           'departmentStatus',
+                           'createdAt',
+                           'updatedAt'
+                         ])
+                    )
                     || (
                       isOwnMember(memberId)
                       && resource.data.authUid == request.auth.uid
-                      && request.resource.data.authUid == resource.data.authUid
                       && request.resource.data.id == resource.data.id
                       && request.resource.data.role == resource.data.role
                       && request.resource.data.active == resource.data.active
+                      && request.resource.data.authUid == request.auth.uid
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                           'name',
+                           'email',
+                           'color',
+                           'authUid',
+                           'profilePhoto',
+                           'profilePhotoMeta',
+                           'profilePhotoPosition',
+                           'updatedAt'
+                         ])
                     );
+
+      // Keep archived identities referenced by task and activity history.
+      allow delete: if isAllAccess()
+                    && (!resource.data.keys().hasAny(['accountStatus'])
+                        || resource.data.accountStatus != 'removed');
+    }
+
+
+    // =========================
+    // ACCOUNT RESTRICTIONS / PRIVATE ARCHIVES
+    // =========================
+
+    match /restrictedAccounts/{emailAddress} {
+      // Clients cannot enumerate the restricted-email list. Status is queried
+      // through a callable that returns only the caller's own email status.
+      allow read, write: if false;
+    }
+
+    match /memberArchives/{memberId} {
+      // Offboarding archives are server-only and are never exposed to clients.
+      allow read, write: if false;
+    }
+
+
+    // =========================
+    // DEPARTMENTS
+    // =========================
+
+    match /departments/{departmentId} {
+
+      allow read: if canReadTaskWorkspace();
+
+      allow create: if isAllAccess()
+                    && request.resource.data.id == departmentId
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() > 0
+                    && request.resource.data.name.size() <= 80
+                    && request.resource.data.color is string;
+
+      allow update: if isAllAccess()
+                    && request.resource.data.id == resource.data.id
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                         'name',
+                         'color',
+                         'updatedAt'
+                       ]);
 
       allow delete: if isAllAccess();
     }
@@ -338,8 +636,20 @@ service cloud.firestore {
 
     match /products/{divisionId} {
 
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAllAccess();
+      allow read: if canReadTaskWorkspace();
+
+      allow create: if isAllAccess()
+                    && request.resource.data.divisionId == divisionId
+                    && request.resource.data.items is list;
+
+      allow update: if isAllAccess()
+                    && request.resource.data.divisionId == resource.data.divisionId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                         'items',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isAllAccess();
     }
 
 
@@ -349,18 +659,86 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
 
-      allow read: if isSignedIn();
+      allow read: if canReadTaskWorkspace();
 
-      allow create: if isAllAccess();
-
-      allow update: if isAllAccess()
-                    || (
-                      isTaskPic()
-                      && request.resource.data.division == resource.data.division
-                      && request.resource.data.assignee == resource.data.assignee
-                      && request.resource.data.priority == resource.data.priority
-                      && request.resource.data.due == resource.data.due
+      allow create: if isAllAccess()
+                    && request.resource.data.id == taskId
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.division is string
+                    && request.resource.data.assignee is string
+                    && request.resource.data.priority in ['high', 'medium', 'low']
+                    && request.resource.data.status in ['todo', 'progress', 'review', 'done']
+                    && request.resource.data.createdAt is string
+                    && request.resource.data.updatedAt is string
+                    && request.resource.data.createdByUid is string
+                    && request.resource.data.updatedByUid == request.auth.uid
+                    && request.resource.data.statusHistory is list
+                    && request.resource.data.contributors is list
+                    && request.resource.data.attachments is list
+                    && (
+                      !request.resource.data.keys().hasAny(['revision'])
+                      || request.resource.data.revision == 0
                     );
+
+      // Admin/all-access can manage task data, but core identity fields
+      // remain immutable and updatedByUid cannot be spoofed when changed.
+            allow update: if (
+                    // PIC first
+                    (
+                      isTaskPic()
+                      && taskIdentityUnchanged()
+                      && updatedByIsSelfOrUnchanged()
+                      && validTaskRevisionTransition()
+                      && onlyTaskPicFieldsChanged()
+                      && picStatusTransitionIsValid()
+                    )
+
+                    ||
+
+                    // Admin / All Access
+                    (
+                      isAllAccess()
+                      && taskIdentityUnchanged()
+                      && updatedByIsSelfOrUnchanged()
+                      && validTaskRevisionTransition()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                           'title',
+                           'description',
+                           'descriptionHtml',
+                           'division',
+                           'product',
+                           'assignee',
+                           'priority',
+                           'due',
+                           'image',
+                           'links',
+                           'contributors',
+                           'attachments',
+                           'attachmentMetadata',
+                           'revision',
+                           'status',
+                           'statusHistory',
+                           'archived',
+                           'updatedAt',
+                           'updatedByUid'
+                         ])
+                    )
+
+                    ||
+
+                    // Contributor
+                    (
+                      isTaskContributor()
+                      && taskIdentityUnchanged()
+                      && updatedByIsSelfOrUnchanged()
+                      && validTaskRevisionTransition()
+                      && onlyTaskContributorFieldsChanged()
+                      && request.resource.data.status == resource.data.status
+                      && request.resource.data.statusHistory == resource.data.statusHistory
+                      && request.resource.data.get('archived', false) == resource.data.get('archived', false)
+                    )
+                  );
 
       allow delete: if isAllAccess();
     }
@@ -371,7 +749,29 @@ service cloud.firestore {
     // =========================
 
     match /counters/{counterId} {
-      allow read, write: if isAllAccess();
+
+      allow read: if isAllAccess();
+
+      // The task counter may only move forward by one during normal
+      // task creation. Admin-only import can still use a reset/write path
+      // elsewhere through the application, but ordinary clients cannot.
+      allow create: if isAllAccess()
+                    && counterId == 'tasks'
+                    && request.resource.data.lastNumber is number
+                    && request.resource.data.lastNumber >= 1;
+
+      allow update: if isAllAccess()
+                    && counterId == 'tasks'
+                    && request.resource.data.lastNumber is number
+                    && (
+                      request.resource.data.lastNumber == resource.data.lastNumber + 1
+                      || (
+                        request.resource.data.importSource == 'workspaceImport'
+                        && request.resource.data.importedByUid == request.auth.uid
+                      )
+                    );
+
+      allow delete: if false;
     }
 
 
@@ -381,18 +781,26 @@ service cloud.firestore {
 
     match /activities/{activityId} {
 
-      allow read: if isSignedIn();
+      allow read: if isWorkspaceActive();
 
-      allow create: if isSignedIn()
-                    && (
-                      request.resource.data.actorUid == request.auth.uid
-                      || (
-                        isAllAccess()
-                        && request.resource.data.legacy == true
-                      )
+      allow create: if (
+                      isSignedIn()
+                      && request.resource.data.legacy != true
+                      && actorIsSelf(
+                           request.resource.data.actorUid,
+                           request.resource.data.actorId
+                         )
+                      && request.resource.data.id == activityId
+                    )
+                    || (
+                      isAllAccess()
+                      && request.resource.data.legacy == true
+                      && request.resource.data.migratedByUid == request.auth.uid
                     );
 
+      // Audit entries are immutable.
       allow update: if false;
+
       allow delete: if isAllAccess();
     }
 
@@ -403,23 +811,44 @@ service cloud.firestore {
 
     match /comments/{commentId} {
 
-      allow read: if isSignedIn();
+      allow read: if canReadTaskWorkspace();
 
-      allow create: if isSignedIn()
-                    && request.resource.data.taskId is string
-                    && request.resource.data.text is string
-                    && request.resource.data.text.size() > 0
-                    && request.resource.data.text.size() <= 10000
-                    && (
-                      request.resource.data.authorUid == request.auth.uid
-                      || (
-                        isAllAccess()
-                        && request.resource.data.legacy == true
-                        && request.resource.data.migratedByUid == request.auth.uid
+      allow create: if (
+                      isSignedIn()
+                      && request.resource.data.id == commentId
+                      && request.resource.data.taskId is string
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.text.size() <= 10000
+                      && actorIsSelf(
+                           request.resource.data.authorUid,
+                           request.resource.data.authorId
+                         )
+                      && exists(
+                           /databases/$(database)/documents/tasks/$(request.resource.data.taskId)
+                         )
+                      && (
+                        request.resource.data.replyToId == null
+                        || (
+                          exists(
+                            /databases/$(database)/documents/comments/$(request.resource.data.replyToId)
+                          )
+                          && get(
+                               /databases/$(database)/documents/comments/$(request.resource.data.replyToId)
+                             ).data.taskId == request.resource.data.taskId
+                        )
                       )
+                      && request.resource.data.legacy != true
+                    )
+                    || (
+                      isAllAccess()
+                      && request.resource.data.legacy == true
+                      && request.resource.data.migratedByUid == request.auth.uid
                     );
 
+      // Comments are immutable for the current client model.
       allow update: if false;
+
       allow delete: if isAllAccess();
     }
 

@@ -5,8 +5,16 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  getIdTokenResult,
+  connectAuthEmulator
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+
+import {
+  getFunctions,
+  httpsCallable,
+  connectFunctionsEmulator
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
 
 import {
   getFirestore,
@@ -23,10 +31,11 @@ import {
   query,
   orderBy,
   limit,
-  where
+  where,
+  connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const firebaseConfig = {
+const liveFirebaseConfig = {
   apiKey: "AIzaSyBUuyZ-Xr7winuUBA-t1hIKe3eVXnGA_Zw",
   authDomain: "twc-monitoring.firebaseapp.com",
   projectId: "twc-monitoring",
@@ -34,12 +43,104 @@ const firebaseConfig = {
   messagingSenderId: "856037018509",
   appId: "1:856037018509:web:a3a5065a1458d5ba384bc4"
 };
+const stagingFirebaseConfig = {
+  apiKey: "AIzaSyDkWtYipuaceSvUdGn-d6trHi0i622k8Po",
+  authDomain: "twc-monitoring-staging.firebaseapp.com",
+  projectId: "twc-monitoring-staging",
+  storageBucket: "twc-monitoring-staging.firebasestorage.app",
+  messagingSenderId: "608539288945",
+  appId: "1:608539288945:web:f3c74bc9f492c9a56982d0",
+  measurementId: "G-C67BBJMKM4"
+};
+
+// Emulator mode is opt-in and only available on direct localhost URLs.
+// Open http://localhost:5500/?firebaseEmulator=1 to isolate all test data.
+// Without this query parameter, the deployed app configuration stays unchanged.
+const localHostname = String(globalThis.location?.hostname || '').toLowerCase();
+const isLoopbackHost = localHostname === 'localhost' || localHostname === '127.0.0.1';
+const emulatorFlag = new URLSearchParams(globalThis.location?.search || '').get('firebaseEmulator') === '1';
+const USE_LOCAL_FIREBASE_EMULATORS = isLoopbackHost && emulatorFlag;
+
+const productionHostnames = new Set([
+  'twcmonitoring.vercel.app'
+]);
+
+const isProductionHost = productionHostnames.has(localHostname);
+
+const isVercelPreviewHost =
+  localHostname.endsWith('.vercel.app') && !isProductionHost;
+
+const firebaseConfig = USE_LOCAL_FIREBASE_EMULATORS
+  ? { ...liveFirebaseConfig, projectId: 'demo-twc-monitoring' }
+  : isVercelPreviewHost
+    ? stagingFirebaseConfig
+    : liveFirebaseConfig;
 
 const app = initializeApp(firebaseConfig);
 
 const auth = getAuth(app);
 const db = getFirestore(app);
+const functions = getFunctions(app, 'asia-southeast2');
 const provider = new GoogleAuthProvider();
+
+if (USE_LOCAL_FIREBASE_EMULATORS) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  console.info('[Task Board] Firebase Emulator mode active: demo-twc-monitoring. Production Firebase is not being used by this page.');
+}
+
+function isLocalDevAgainstProduction() {
+  const hostname = String(globalThis.location?.hostname || '').toLowerCase();
+  const localDevHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.devtunnels.ms');
+  return firebaseConfig.projectId === 'twc-monitoring' && localDevHost;
+}
+
+function assertLifecycleMutationSafe() {
+  if (isLocalDevAgainstProduction()) {
+    throw new Error('Account lifecycle actions are blocked on localhost/Dev Tunnel while connected to the production Firebase project. Use a staging Firebase project or Emulator first.');
+  }
+}
+
+function callableAccountFunction(name) {
+  return httpsCallable(functions, name);
+}
+
+async function getAccountOnboardingState() {
+  const response = await callableAccountFunction('getAccountOnboardingState')({});
+  const status = String(response?.data?.status || 'none');
+  return ['none', 'blocked', 'approved'].includes(status) ? status : 'blocked';
+}
+
+async function consumeAccountReonboardingApproval(uid) {
+  assertLifecycleMutationSafe();
+  const response = await callableAccountFunction('consumeAccountReonboardingApproval')({ uid });
+  return response?.data || { ok: true };
+}
+
+async function setManagedAccountStatus(memberId, accountStatus) {
+  assertLifecycleMutationSafe();
+  const response = await callableAccountFunction('setManagedAccountStatus')({ memberId, accountStatus });
+  return response?.data || {};
+}
+
+async function permanentlyRemoveAccount(memberId) {
+  assertLifecycleMutationSafe();
+  const response = await callableAccountFunction('permanentlyRemoveAccount')({ memberId });
+  return response?.data || {};
+}
+
+async function allowAccountReonboarding(memberId) {
+  assertLifecycleMutationSafe();
+  const response = await callableAccountFunction('allowAccountReonboarding')({ memberId });
+  return response?.data || {};
+}
+
+async function getCurrentAuthTimeSeconds() {
+  if (!auth.currentUser) return 0;
+  const token = await getIdTokenResult(auth.currentUser);
+  return Number(token?.claims?.auth_time || 0);
+}
 
 // Stage 11.1 — file metadata groundwork.
 // File bytes are intentionally NOT moved anywhere yet; these helpers let the
@@ -1141,6 +1242,9 @@ async function markAllNotificationsRead(userUid, unreadNotifications = []) {
 }
 
 async function createUserProfile(uid, profileData) {
+  if (isLocalDevAgainstProduction()) {
+    throw new Error('Pembuatan profil akun baru dinonaktifkan dari localhost/Dev Tunnel yang memakai Firebase produksi. Gunakan staging atau Emulator untuk test onboarding.');
+  }
   const userRef = doc(db, "users", uid);
 
   await setDoc(userRef, {
@@ -1379,33 +1483,57 @@ async function updateTask(taskId, taskData, notificationRequests = [], expectedV
   const now = new Date().toISOString();
   const updatedAt = taskData.updatedAt || now;
 
-  if (!actorUid) throw new Error('Session Firebase tidak tersedia. Silakan login ulang.');
+  if (!actorUid) {
+    throw new Error('Session Firebase tidak tersedia. Silakan login ulang.');
+  }
 
   const nextRevision = await runTransaction(db, async transaction => {
     const snapshot = await transaction.get(taskRef);
-    if (!snapshot.exists()) throw new Error(`Task ${String(taskId)} tidak ditemukan di server.`);
+
+    if (!snapshot.exists()) {
+      throw new Error(`Task ${String(taskId)} tidak ditemukan di server.`);
+    }
 
     const serverData = snapshot.data() || {};
+
     assertExpectedTaskVersion(taskId, serverData, expectedVersion);
+
     const revision = taskRevisionNumber(serverData.revision) + 1;
 
-    transaction.update(taskRef, {
+    const writeData = {
       ...taskData,
       revision,
       updatedByUid: actorUid,
       updatedAt
-    });
+    };
 
-    // Keep the source task and its event notification atomic. The transaction
-    // first verifies that the version the user edited is still the current one.
-    addTaskEventNotificationsToBatch(transaction, String(taskId), notificationRequests, actorUid);
+    // Do not introduce a default archived:false field into a legacy task
+    // that does not have archived on the server.
+    // PIC updates must not modify task-archiving fields.
+    if (
+      !Object.prototype.hasOwnProperty.call(serverData, 'archived') &&
+      writeData.archived === false
+    ) {
+      delete writeData.archived;
+    }
+
+    transaction.update(taskRef, writeData);
+
+    // Keep task updates and task-event notifications atomic.
+    addTaskEventNotificationsToBatch(
+      transaction,
+      String(taskId),
+      notificationRequests,
+      actorUid
+    );
+
     return revision;
   });
 
-  // Reflect the committed version back into the caller's in-memory object.
   taskData.revision = nextRevision;
   taskData.updatedByUid = actorUid;
   taskData.updatedAt = updatedAt;
+
   return taskData;
 }
 
@@ -1807,6 +1935,12 @@ window.deleteProductGroup = deleteProductGroup;
 window.seedProductGroupIfMissing = seedProductGroupIfMissing;
 window.createUserProfile = createUserProfile;
 window.updateUserProfile = updateUserProfile;
+window.getAccountOnboardingState = getAccountOnboardingState;
+window.consumeAccountReonboardingApproval = consumeAccountReonboardingApproval;
+window.setManagedAccountStatus = setManagedAccountStatus;
+window.permanentlyRemoveAccount = permanentlyRemoveAccount;
+window.allowAccountReonboarding = allowAccountReonboarding;
+window.getCurrentAuthTimeSeconds = getCurrentAuthTimeSeconds;
 window.addTask = addTask;
 window.updateTask = updateTask;
 window.updateTasksBatch = updateTasksBatch;
@@ -1859,5 +1993,11 @@ export {
   updateTasksBatch,
   deleteTask,
   deleteTasksBatch,
-  updateUserProfile
+  updateUserProfile,
+  getAccountOnboardingState,
+  consumeAccountReonboardingApproval,
+  setManagedAccountStatus,
+  permanentlyRemoveAccount,
+  allowAccountReonboarding,
+  getCurrentAuthTimeSeconds
 };

@@ -1,0 +1,15 @@
+# Node.js dependencies
+node_modules/
+functions/node_modules/
+
+# Firebase emulator debug logs
+*-debug.log
+firebase-debug.log*
+
+# Local Firebase Emulator exports
+/emulator-data/
+/emulator-data-*/
+/firebase-export-*/
+
+# Local comparison copy
+/app-backup-compare.js

@@ -530,11 +530,45 @@ function formatDate(str){
 
     const upcomingHtml = upcoming.length ? upcoming.map(t => `<button class="dashboard-task-row" data-task-id="${t.id}"><span><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(memberOf(t.assignee).name)} · ${deadlineLabel(t).replace(/<[^>]+>/g,'') || formatDate(t.due)}</small></span><span class="dash-priority ${t.priority}">${PRIORITY_LABEL[t.priority]}</span></button>`).join('') : '<div class="dashboard-empty">No upcoming deadlines.</div>';
     const recentHtml = recent.length ? recent.map(t => `<button class="dashboard-task-row" data-task-id="${t.id}"><span><strong>${escapeHtml(t.title)}</strong><small>Updated ${relativeTime(t.updatedAt)} · ${STATUS_LABEL[t.status]}</small></span><span class="dash-status">${STATUS_LABEL[t.status]}</span></button>`).join('') : '<div class="dashboard-empty">No recent task activity.</div>';
-    const workloadHtml = members.map(m => {
-      const count = tasks.filter(t => t.assignee === m.id && t.status !== 'done').length;
-      const max = Math.max(1,...members.map(x => tasks.filter(t => t.assignee === x.id && t.status !== 'done').length));
-      return `<div class="workload-row"><div class="workload-person"><span class="mini-avatar" style="background:${m.color}">${escapeHtml(m.name.slice(0,2).toUpperCase())}</span><strong>${escapeHtml(m.name)}</strong></div><div class="workload-bar"><span style="width:${Math.round(count/max*100)}%"></span></div><em>${count} active</em></div>`;
-    }).join('');
+    console.table(members.map(m => ({
+  id: m.id,
+  name: m.name,
+  accountStatus: m.accountStatus,
+  active: m.active,
+  archived: m.archived
+})));
+    const workloadMembers = members.filter(m =>
+  m.accountStatus !== 'removed' &&
+  m.accountStatus !== 'inactive' &&
+  m.active !== false &&
+  m.archived !== true
+);
+
+const workloadMax = Math.max(
+  1,
+  ...workloadMembers.map(m =>
+    tasks.filter(
+      t => t.assignee === m.id && t.status !== 'done'
+    ).length
+  )
+);
+
+const workloadHtml = workloadMembers.map(m => {
+  const count = tasks.filter(
+    t => t.assignee === m.id && t.status !== 'done'
+  ).length;
+
+  return `<div class="workload-row">
+    <div class="workload-person">
+      <span class="mini-avatar" style="background:${m.color}">${escapeHtml(m.name.slice(0,2).toUpperCase())}</span>
+      <strong>${escapeHtml(m.name)}</strong>
+    </div>
+    <div class="workload-bar">
+      <span style="width:${Math.round(count/workloadMax*100)}%"></span>
+    </div>
+    <em>${count} active</em>
+  </div>`;
+}).join('');
 
     const attentionClass = overdue > 0 ? 'has-critical' : dueToday > 0 ? 'has-warning' : '';
     const summaryCopy = attentionTotal === 0 ? 'Everything looks clear. Here is your current workspace snapshot.' : `${attentionTotal} ${attentionTotal === 1 ? 'item needs' : 'items need'} attention today.`;
