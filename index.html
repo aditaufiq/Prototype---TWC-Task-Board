@@ -6674,8 +6674,9 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
     // 1. Simpan task + assignment notification secara atomik.
     await window.addTask(newTask, taskNotificationRequests);
 
-    // 2. Kalau sukses, baru masukkan ke state lokal
-    tasks.push(newTask);
+    // 2. Kalau sukses, baru masukkan ke state lokal.
+    // Listener realtime biasanya sudah memasukkan task ini; jangan tambahkan dua kali.
+    if (!tasks.some(t => String(t.id) === String(newTask.id))) tasks.push(newTask);
 
     logActivity(
       newTask.id,
