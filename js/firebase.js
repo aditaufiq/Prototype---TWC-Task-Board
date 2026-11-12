@@ -102,36 +102,107 @@ function assertLifecycleMutationSafe() {
   }
 }
 
+// Backend akun production = Cloudflare Worker (bukan Cloud Functions; project memakai paket Spark).
+// Hanya dipakai dari twcmonitoring.vercel.app. Worker sendiri juga menolak origin lain.
+// Worker memeriksa token login, hak All Access, dan target. Browser tidak pernah memegang kunci admin.
+const ACCOUNT_BACKEND_BASE_URL = isProductionHost
+  ? 'https://twc-monitoring-account-backend.twcmonitoring-backend.workers.dev'
+  : null;
+
 function callableAccountFunction(name) {
+  if (!USE_LOCAL_FIREBASE_EMULATORS) {
+    // Jalur callable hanya untuk Functions Emulator lokal. Jangan pernah fallback ke Cloud Function online.
+    throw new Error(`Backend action "${name}" is only available through the account Worker or the local Functions Emulator.`);
+  }
   return httpsCallable(functions, name);
 }
 
+async function callAccountWorker(path, payload, timeoutMs = 15000) {
+  if (!ACCOUNT_BACKEND_BASE_URL) {
+    throw new Error('Aksi akun hanya tersedia di https://twcmonitoring.vercel.app (atau Firebase Emulator lokal).');
+  }
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Silakan login terlebih dahulu.');
+  // Firebase ID token milik user yang login, BUKAN kunci service account. Tidak dicatat ke log.
+  const idToken = await currentUser.getIdToken();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(`${ACCOUNT_BACKEND_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload || {}),
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(String(body?.error || `Operasi akun gagal (HTTP ${response.status}).`));
+    error.code = body?.code;
+    throw error;
+  }
+  return body || {};
+}
+
 async function getAccountOnboardingState() {
-  const response = await callableAccountFunction('getAccountOnboardingState')({});
-  const status = String(response?.data?.status || 'none');
-  return ['none', 'blocked', 'approved'].includes(status) ? status : 'blocked';
+  if (USE_LOCAL_FIREBASE_EMULATORS) {
+    const response = await callableAccountFunction('getAccountOnboardingState')({});
+    const status = String(response?.data?.status || 'none');
+    return ['none', 'blocked', 'approved'].includes(status) ? status : 'blocked';
+  }
+  const body = await callAccountWorker('/v1/onboarding-state', {});
+  const status = String(body?.status || '');
+  // Fail closed pada jawaban yang tidak dikenal. Jangan pernah menebak 'none'.
+  if (!['none', 'blocked', 'approved'].includes(status)) {
+    throw new Error('Unexpected onboarding verification response.');
+  }
+  return status;
 }
 
 async function consumeAccountReonboardingApproval(uid) {
   assertLifecycleMutationSafe();
+  if (!USE_LOCAL_FIREBASE_EMULATORS) {
+    // Worker mengambil email dan UID dari token login, bukan dari isian browser.
+    return callAccountWorker('/v1/account/consume-reonboarding', { uid });
+  }
   const response = await callableAccountFunction('consumeAccountReonboardingApproval')({ uid });
   return response?.data || { ok: true };
 }
 
 async function setManagedAccountStatus(memberId, accountStatus) {
   assertLifecycleMutationSafe();
+  if (!USE_LOCAL_FIREBASE_EMULATORS) {
+    return callAccountWorker('/v1/admin/set-managed-account-status', { memberId, accountStatus });
+  }
   const response = await callableAccountFunction('setManagedAccountStatus')({ memberId, accountStatus });
   return response?.data || {};
 }
 
 async function permanentlyRemoveAccount(memberId) {
   assertLifecycleMutationSafe();
+  if (!USE_LOCAL_FIREBASE_EMULATORS) {
+    // Hapus permanen punya lebih banyak langkah (arsip, notifikasi, akun login): beri waktu 30 detik.
+    return callAccountWorker('/v1/admin/permanently-remove-account', { memberId }, 30000);
+  }
   const response = await callableAccountFunction('permanentlyRemoveAccount')({ memberId });
   return response?.data || {};
 }
 
 async function allowAccountReonboarding(memberId) {
   assertLifecycleMutationSafe();
+  if (!USE_LOCAL_FIREBASE_EMULATORS) {
+    return callAccountWorker('/v1/admin/allow-reonboarding', { memberId });
+  }
   const response = await callableAccountFunction('allowAccountReonboarding')({ memberId });
   return response?.data || {};
 }

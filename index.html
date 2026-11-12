@@ -2340,6 +2340,96 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   @media (prefers-reduced-motion:reduce) { .account-action-btn { transition:none; } }
 </style>
 
+<style id="twc-notice-style">
+/* TWC in-app notice: replaces the browser's native alert() with the Task Board glass modal style. */
+.twc-notice-overlay{position:fixed;inset:0;z-index:6000;display:flex;align-items:center;justify-content:center;padding:1.2rem;background:rgba(27,39,37,.2);backdrop-filter:blur(14px) saturate(118%);-webkit-backdrop-filter:blur(14px) saturate(118%);opacity:0;pointer-events:none;transition:opacity .18s ease}
+.twc-notice-overlay.open{opacity:1;pointer-events:auto}
+.twc-notice{width:min(400px,94vw);padding:1.35rem;border:1px solid rgba(255,255,255,.9);border-radius:22px;background:rgba(255,255,255,.94);box-shadow:0 24px 70px rgba(31,49,46,.16),inset 0 1px 0 rgba(255,255,255,.94);backdrop-filter:blur(26px) saturate(125%);-webkit-backdrop-filter:blur(26px) saturate(125%);font-family:inherit;transform:translateY(8px) scale(.98);transition:transform .2s ease}
+.twc-notice-overlay.open .twc-notice{transform:none}
+.twc-notice-icon{width:42px;height:42px;margin-bottom:.85rem;border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1rem}
+.twc-notice[data-tone="success"] .twc-notice-icon{background:linear-gradient(145deg,#e5f2ee,#f2f8f6);border:1px solid rgba(15,118,110,.08);color:#0f766e}
+.twc-notice[data-tone="warning"] .twc-notice-icon{background:#FDF4E1;color:#B07A00}
+.twc-notice[data-tone="error"] .twc-notice-icon{background:#FDECEC;color:#D64545}
+.twc-notice[data-tone="info"] .twc-notice-icon{background:#EEF2F6;color:#475467}
+.twc-notice h3{margin:0 0 .42rem;color:#183b38;font-size:1.18rem;line-height:1.28;letter-spacing:-.035em;font-weight:700}
+.twc-notice p{margin:0;color:#71807b;font-size:.76rem;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere}
+.twc-notice-actions{display:flex;justify-content:flex-end;margin-top:1.15rem}
+.twc-notice-actions button{min-height:38px;padding:.58rem 1.2rem;border:0;border-radius:11px;background:#0F766E;color:#fff;font:inherit;font-size:.74rem;font-weight:650;cursor:pointer;box-shadow:0 5px 13px rgba(15,118,110,.15)}
+.twc-notice-actions button:hover{background:#0c645d}
+.twc-notice-actions button:focus-visible{outline:3px solid rgba(15,118,110,.3);outline-offset:2px}
+@media(max-width:560px){.twc-notice-overlay{padding:.8rem}.twc-notice{width:100%;padding:1.05rem;border-radius:19px}.twc-notice-actions button{flex:1}}
+</style>
+<script id="twc-notice-script">
+(() => {
+  // Same messages as before; only the presentation changes. Notices queue so none is lost.
+  const TONES = {
+    success: { icon: '✓', title: 'Done' },
+    warning: { icon: '!', title: 'Heads up' },
+    error: { icon: '!', title: 'Something went wrong' },
+    info: { icon: 'i', title: 'Notice' }
+  };
+  const queue = [];
+  let overlay = null;
+  let lastFocus = null;
+
+  function inferTone(text) {
+    if (/gagal|failed|could not|masalah|tidak ditemukan|not found|unknown error/i.test(text)) return 'error';
+    if (/retry|incomplete|already used|please|expired|belum|only admin|not available/i.test(text)) return 'warning';
+    if (/success|completed|approved|reactivated|deactivated|removed|imported|berhasil/i.test(text)) return 'success';
+    return 'info';
+  }
+
+  function build() {
+    overlay = document.createElement('div');
+    overlay.className = 'twc-notice-overlay';
+    overlay.innerHTML =
+      '<div class="twc-notice" role="alertdialog" aria-modal="true" aria-labelledby="twcNoticeTitle" aria-describedby="twcNoticeMessage">' +
+      '<div class="twc-notice-icon" aria-hidden="true"></div>' +
+      '<h3 id="twcNoticeTitle"></h3><p id="twcNoticeMessage"></p>' +
+      '<div class="twc-notice-actions"><button type="button">OK</button></div></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('button').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); close(); }
+    });
+  }
+
+  function show() {
+    if (!overlay) build();
+    const { message, tone } = queue[0];
+    const t = TONES[tone] || TONES.info;
+    const box = overlay.querySelector('.twc-notice');
+    box.dataset.tone = tone;
+    box.querySelector('.twc-notice-icon').textContent = t.icon;
+    box.querySelector('h3').textContent = t.title;
+    box.querySelector('p').textContent = message; // textContent: never interpreted as HTML
+    if (!overlay.classList.contains('open')) lastFocus = document.activeElement;
+    overlay.classList.add('open');
+    setTimeout(() => overlay.querySelector('button').focus(), 0);
+  }
+
+  function close() {
+    queue.shift();
+    if (queue.length) return show();
+    overlay.classList.remove('open');
+    if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+  }
+
+  function showNotice(message, tone) {
+    const text = String(message ?? '');
+    queue.push({ message: text, tone: TONES[tone] ? tone : inferTone(text) });
+    if (queue.length === 1) {
+      if (document.body) show();
+      else document.addEventListener('DOMContentLoaded', show, { once: true });
+    }
+  }
+
+  window.showNotice = showNotice;
+  // Every existing alert() in the Task Board now uses the in-app notice.
+  window.alert = (message) => showNotice(message);
+})();
+</script>
 </head>
 <body class="auth-pending">
 <div id="authRestoreScreen" aria-live="polite" aria-busy="true">
