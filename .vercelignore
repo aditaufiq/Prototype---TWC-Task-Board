@@ -1,0 +1,5 @@
+# File backend/konfigurasi Firebase: tidak dibutuhkan situs, jangan ikut tayang di Vercel.
+functions/
+firestore.rules
+firebase.json
+.firebaserc
