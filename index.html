@@ -2640,8 +2640,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <p class="desc" id="boardDesc">Your workspace overview and the tasks that need attention.</p>
 </div>
 <div class="toolbar">
-<button class="toolbar-btn" id="exportBtn">⬇ Export Data</button>
-<button class="toolbar-btn" id="importBtn">⬆ Import Data</button>
+<!-- Import/Export disembunyikan (permintaan Ka Tata). Kode tetap ada; backup lewat script Worker. -->
+<button class="toolbar-btn" id="exportBtn" style="display:none">⬇ Export Data</button>
+<button class="toolbar-btn" id="importBtn" style="display:none">⬆ Import Data</button>
 <input accept="application/json" id="importFile" style="display:none" type="file"/>
 <div class="notification-wrap">
 <button aria-label="Open notifications" class="toolbar-btn notification-btn" id="notifyBtn">🔔 Notifications<span class="notification-count" id="notificationCount" style="display:none">0</span></button>
@@ -2866,7 +2867,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <h3>Manage Members</h3>
 <p class="member-manager-help">Assign a department to activate a new member. Their account will open the workspace automatically after assignment. Roster role is separate from workspace access privileges.</p>
 <div id="memberRows"></div>
-<button class="btn-secondary" id="addMemberBtn" style="margin-top: 0.8rem; width: 100%;">+ Add member</button>
+<!-- Add member disembunyikan: member baru dibuat lewat login Google + Get Started. -->
+<button class="btn-secondary" id="addMemberBtn" style="display:none; margin-top: 0.8rem; width: 100%;">+ Add member</button>
 <div class="modal-actions">
 <button class="add-btn" id="closeMembersBtn">Done</button>
 </div>
@@ -7190,7 +7192,10 @@ document.getElementById('deleteBtn').addEventListener('click', () => {
         try {
           await saveDepartment(department);
           logActivity(null, 'department', `Created department “${trimmedName}”`);
-          departments = sortDepartmentsAlphabetically([...departments, department]);
+          // Listener realtime biasanya sudah memasukkan departemen ini; jangan tambahkan dua kali.
+          if (!departments.some(d => String(d.id) === String(department.id))) {
+            departments = sortDepartmentsAlphabetically([...departments, department]);
+          }
           renderAll();
           renderDepartmentManager();
         } catch (error) {
@@ -8025,7 +8030,8 @@ document.getElementById('membersBtn').addEventListener('click', () => {
 
     try {
       await saveMember(member);
-      members.push(member);
+      // Listener realtime biasanya sudah memasukkan member ini; jangan tambahkan dua kali.
+      if (!members.some(m => String(m.id) === String(member.id))) members.push(member);
       renderMemberRows();
     } catch (error) {
       console.error('❌ Gagal menambah member:', error);
@@ -8048,8 +8054,9 @@ document.getElementById('membersBtn').addEventListener('click', () => {
   const exportButton = document.getElementById('exportBtn');
   const importButton = document.getElementById('importBtn');
   if (notifyButton) notifyButton.style.display = readOnlyPending ? 'none' : '';
-  if (exportButton) exportButton.style.display = readOnlyPending ? 'none' : '';
-  if (importButton) importButton.style.display = readOnlyPending ? 'none' : '';
+  // Import/Export sengaja selalu disembunyikan untuk semua user.
+  if (exportButton) exportButton.style.display = 'none';
+  if (importButton) importButton.style.display = 'none';
 }
 
 function showAccountRestrictedScreen(user, status='inactive'){
